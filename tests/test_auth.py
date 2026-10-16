@@ -421,11 +421,10 @@ def _mcp_server(accepted_token: str, attempts: list):
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         method, req_id = body.get("method"), body.get("id")
-        if method == "initialize":
+        if method == "tools/call":
             attempts.append(request.headers.get("authorization"))
             if request.headers.get("authorization") != f"Bearer {accepted_token}":
                 return httpx.Response(401, json={"error": "invalid token"})
-            return httpx.Response(200, json=_initialize_response(req_id))
         if method == "notifications/initialized":
             return httpx.Response(202)
         if method == "tools/list":

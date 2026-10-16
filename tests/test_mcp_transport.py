@@ -298,11 +298,11 @@ def test_401_triggers_exactly_one_relogin_and_retry_succeeds():
         body = json.loads(request.content)
         method, req_id = body.get("method"), body.get("id")
         auth = request.headers.get("authorization")
-        if method == "initialize":
+        if method == "tools/call":
             attempts["n"] += 1
             if auth == "Bearer jwt-1":
                 return httpx.Response(401, json={"error": "invalid token"})
-            return httpx.Response(200, json=_initialize_response(req_id))
+            return httpx.Response(200, json=_tool_call_response(req_id, {"ok": True}))
         if method == "notifications/initialized":
             return httpx.Response(202)
         if method == "tools/list":
@@ -325,7 +325,7 @@ def test_401_triggers_exactly_one_relogin_and_retry_succeeds():
 def test_second_401_after_retry_still_fails_clearly():
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        if body.get("method") == "initialize":
+        if body.get("method") == "tools/call":
             return httpx.Response(401, json={"error": "invalid token"})
         return httpx.Response(404)
 
@@ -362,10 +362,10 @@ def test_call_tool_reuses_client_login_state_not_a_second_auth_system():
         body = json.loads(request.content)
         method, req_id = body.get("method"), body.get("id")
         auth = request.headers.get("authorization")
-        if method == "initialize":
+        if method == "tools/call":
             if auth == "Bearer jwt-1":
                 return httpx.Response(401, json={"error": "invalid"})
-            return httpx.Response(200, json=_initialize_response(req_id))
+            return httpx.Response(200, json=_tool_call_response(req_id, {"ok": True}))
         if method == "notifications/initialized":
             return httpx.Response(202)
         if method == "tools/list":

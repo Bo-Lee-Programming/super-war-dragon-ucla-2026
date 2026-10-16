@@ -1,65 +1,26 @@
-"""Synchronous bridge to Agent_ACP's MCP gameplay server, built on the
-OFFICIAL `mcp` Python SDK client — not a hand-rolled JSON-RPC-over-HTTP
-implementation (see "why" below).
+"""Synchronous gameplay bridge using the platform's documented stateless
+JSON-RPC mode: one POST per tool call, without an MCP initialize handshake.
 
-History: an earlier version of this module hand-rolled the JSON-RPC 2.0
-envelope directly over ``AltruAgentClient.request()``. It was replaced with
-the official ``mcp.client.streamable_http.streamablehttp_client`` +
-``mcp.ClientSession`` pattern Agent_ACP's own scripts use, which removes any
-doubt about hand-rolled-protocol correctness. (The "Invalid Host header"
-HTTP 421 first seen against the deployed server was a platform-side
-allowed-hosts issue, since fixed in Agent_ACP; no client change was needed.)
+Official contract: https://api.altruagent-game.com/skill/mcp.md, "Raw JSON-RPC".
+The platform returns plain JSON and requires both JSON and SSE in Accept.
+The official MCP types still serialize requests and validate responses.
 
-Sync bridge design: the official SDK is async-only, but the rest of this
-starter (``altruagent.runner``, ``altruagent.worker``, etc.) is deliberately
-synchronous — turning that into asyncio-based code was explicitly ruled
-out. Each call here therefore opens a **fresh** connection + MCP session
-for that ONE tool call, via ``asyncio.run(...)``:
-
-    asyncio.run() -> streamablehttp_client (fresh HTTP connection)
-                  -> ClientSession -> initialize() -> call_tool() -> close
-
-rather than keeping one long-lived async session open across an entire
-match (which could span many minutes between turns). This is deliberate,
-not a shortcut:
-
-- The server is ``stateless_http=True`` — confirmed in server.py, this
-  means the server itself holds no per-connection session state between
-  requests, so there is no server-side affinity to preserve across calls.
-- ``asyncio.run()`` is documented-safe to call repeatedly, sequentially, in
-  the same process (each call creates and cleanly tears down its own event
-  loop) — the only hard restriction is not calling it from *inside* an
-  already-running loop, which never happens here since nothing else in this
-  process runs asyncio.
-- This sidesteps every cross-call event-loop-lifetime question entirely
-  (Windows' default Proactor loop, multiprocessing ``spawn`` workers each
-  starting with no inherited loop state, a match potentially idling a long
-  time between turns) — there is no persistent
-  loop or connection to keep alive, reconnect, or leak.
-- The cost is one extra TCP handshake + MCP ``initialize`` round-trip per
-  tool call versus a kept-open session. For a turn-based game polling at
-  most a few times a second, this is immaterial.
-
-JWT refresh: this bypasses ``AltruAgentClient.request()`` (the official SDK
-owns its own HTTP transport), so the request()-level one-retry-after-401
-logic can't be reused directly — but the *policy* is preserved exactly,
-through ``AltruAgentClient._current_access_token()`` (same client, same
-auth state, not a second auth system): fetch the current token, try once;
-on a 401 (surfaced by the SDK's own ``response.raise_for_status()`` as
-``httpx.HTTPStatusError`` — confirmed in mcp/client/streamable_http.py),
-force a fresh login and retry exactly once, exactly like ``request()``.
+Each call keeps the existing short-lived async HTTP client and 45 s overall
+deadline; persistent HTTP pooling is deliberately a separate optimization.
+TLS verification remains httpx's default and redirects are never followed.
+The existing auth source refreshes once on HTTP 401 with the same seat lease.
+No retry or SDK fallback follows any other response or transport failure.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import httpx
-from mcp import ClientSession, types
-from mcp.client.streamable_http import streamablehttp_client
+from mcp import types
 from pydantic_core import PydanticSerializationError
 
 from .errors import PlatformError
@@ -150,25 +111,53 @@ def _find_serialization_error(exc: BaseException) -> PydanticSerializationError 
 async def _call_tool_once(
     mcp_url: str, token: str, name: str, arguments: dict, *, httpx_client_factory=None
 ) -> dict:
-    headers = {"Authorization": f"Bearer {token}"}
-    kwargs: dict[str, Any] = {
-        "headers": headers,
-        # The SDK builds httpx.Timeout(timeout, read=sse_read_timeout) from these.
-        "timeout": MCP_CONNECT_TIMEOUT_SECONDS,
-        "sse_read_timeout": MCP_READ_TIMEOUT_SECONDS,
+    # Build JSON with the same official models as ClientSession. This preserves
+    # supported conversions (e.g. datetime) and rejects unsendable local values.
+    request_id = uuid4().hex
+    params = types.CallToolRequestParams(name=name, arguments=arguments).model_dump(
+        by_alias=True, mode="json", exclude_none=True
+    )
+    request_body = types.JSONRPCRequest(
+        jsonrpc="2.0", id=request_id, method="tools/call", params=params
+    ).model_dump_json(by_alias=True, exclude_none=True)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
     }
-    if httpx_client_factory is not None:
-        # Test-only seam: lets unit tests exercise the real streamablehttp_client
-        # / ClientSession code paths (JSON-RPC framing, error unwrapping) against
-        # an httpx.MockTransport-backed AsyncClient instead of real sockets,
-        # rather than replacing the SDK's classes with hand-built fakes.
-        kwargs["httpx_client_factory"] = httpx_client_factory
-    async with streamablehttp_client(mcp_url, **kwargs) as (read, write, _):
-        async with ClientSession(
-            read, write, read_timeout_seconds=timedelta(seconds=MCP_SESSION_TIMEOUT_SECONDS)
-        ) as session:
-            await session.initialize()
-            result = await session.call_tool(name, arguments)
+    timeout = httpx.Timeout(MCP_CONNECT_TIMEOUT_SECONDS, read=MCP_READ_TIMEOUT_SECONDS)
+    factory = httpx_client_factory or httpx.AsyncClient
+    # Keep both the socket timeout and whole-call backstop. In particular a
+    # healthy wait_for_update can hold for 25 s, while a trickling or silent
+    # response must not occupy the worker indefinitely.
+    async with asyncio.timeout(MCP_SESSION_TIMEOUT_SECONDS):
+        async with factory(headers=headers, timeout=timeout, auth=None) as http:
+            response = await http.post(mcp_url, content=request_body, follow_redirects=False)
+            response.raise_for_status()
+
+    try:
+        raw_response = response.json()
+        if not isinstance(raw_response, dict) or (("result" in raw_response) == ("error" in raw_response)):
+            raise ValueError("expected exactly one JSON-RPC result or error")
+        envelope = types.JSONRPCMessage.model_validate(raw_response).root
+        if not isinstance(envelope, (types.JSONRPCResponse, types.JSONRPCError)):
+            raise ValueError("not a JSON-RPC response")
+        if envelope.id != request_id:
+            raise ValueError("JSON-RPC response id does not match the call")
+        if isinstance(envelope, types.JSONRPCError):
+            raise MCPToolError(
+                f"MCP tool {name!r} failed with JSON-RPC error {envelope.error.code}: "
+                f"{envelope.error.message}",
+                status_code=None, error_code=None, protocol_error=True,
+            )
+        result = types.CallToolResult.model_validate(envelope.result)
+    except ValueError as exc:
+        # Do not replay a mutation when a completed reply cannot be decoded.
+        # The public endpoint promises plain JSON, not an SSE response stream.
+        raise MCPToolError(
+            f"MCP tool {name!r} returned an invalid JSON-RPC tool response.",
+            status_code=None, error_code=None, protocol_error=True,
+        ) from exc
 
     if result.isError:
         raise MCPToolError(
