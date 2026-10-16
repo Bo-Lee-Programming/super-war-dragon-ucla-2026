@@ -59,7 +59,7 @@ def move(option, observation=None, attacker=None):
               "power":number(option.get("base_power", data.get("basePower", 0))),
               "category":str(option.get("category", data.get("category", "Status"))).lower(),
               "priority":number(option.get("priority", data.get("priority", 0))),
-              "target":data.get("target", "normal")}
+              "target":data.get("target", "normal"), "hits":1.}
     accuracy = option.get("accuracy", data.get("accuracy", 100))
     result["accuracy"] = 1. if accuracy is True else max(0., min(1., number(accuracy, 100) / (100 if number(accuracy, 100) > 1 else 1)))
     if result["category"] == "status" and _norm((attacker or {}).get("ability")) == "prankster":
@@ -79,11 +79,13 @@ def move(option, observation=None, attacker=None):
         result["accuracy"] = 1.
     multihit = data.get("multihit")
     if isinstance(multihit, int):
+        result["hits"] = multihit
         result["power"] *= multihit
     elif isinstance(multihit, list) and len(multihit) == 2:
         hits = 4.5 if _norm((attacker or {}).get("item")) == "loadeddice" else 3.
         if _norm((attacker or {}).get("ability")) == "skilllink":
             hits = multihit[1]
+        result["hits"] = hits
         result["power"] *= hits
     if name in {"waterspout", "eruption", "dragonenergy"}:
         result["power"] *= hp(attacker or {})
@@ -136,6 +138,7 @@ def grounded(mon):
 
 def damage(option, attacker, defender, observation=None, spread=False):
     """Expected HP fraction proxy, using only current exposed information."""
+    battle_sequence = observation is not None
     observation = observation or {}
     m = move(option, observation, attacker)
     if m["category"] not in {"physical", "special"} or m["power"] <= 0:
@@ -190,7 +193,11 @@ def damage(option, attacker, defender, observation=None, spread=False):
     if "mistyterrain" in fields and grounded(defender) and element == "dragon":
         value *= .5
     if ability in {"multiscale", "shadowshield"} and hp(defender) == 1:
-        value *= .5
+        # Normal multi-hit attacks check full HP separately on every hit.
+        # Preserve selection's old proxy (no observation), and leave split,
+        # escalating-power, and per-hit-accuracy moves to their existing model.
+        hits = m["hits"] if battle_sequence and name not in {"dragondarts", "tripleaxel", "triplekick", "populationbomb"} else 1.
+        value *= 1 - .5 / hits
     if ability in {"filter", "solidrock", "prismarmor"} and effectiveness > 1:
         value *= .75
     if ability == "thickfat" and element in {"fire", "ice"}:
@@ -437,6 +444,41 @@ def _sleep_before_foe(m, attacker, foe, observation):
     return ours < theirs if "trickroom" in flags(observation, "fields") else ours > theirs
 
 
+def _known_move_names(mon):
+    sources = (mon.get("moves"), _dict(mon.get("public_set")).get("moves"))
+    return {_norm(m) for moves in sources if isinstance(moves, (list, tuple)) for m in moves if isinstance(m, str)}
+
+
+def _shield_break_credit(prior, later, active, pair, foe, foes, incoming, observation):
+    """Conditional expectation, never a guaranteed break or a KO certificate."""
+    first, second = pair[prior][2], pair[later][2]
+    if first["priority"] < second["priority"]:
+        return 0.
+    reverse = "trickroom" in flags(observation, "fields")
+    if first["priority"] == second["priority"]:
+        a, b = speed(active[prior], observation), speed(active[later], observation)
+        if not (a < b if reverse else a > b):
+            return 0.
+    # A public Protect option can stop both hits. Do not award this optional
+    # extra credit when that uncertainty is explicit in the visible set.
+    if _known_move_names(foe) & _PROTECT:
+        return 0.
+    user = active[prior]
+    if _norm(user.get("ability")) not in {"innerfocus", "shielddust"} and _norm(user.get("item")) != "covertcloak":
+        for enemy in foes.values():
+            if "fakeout" not in _known_move_names(enemy) or damage({"move_id":"fakeout"}, enemy, user, observation) <= 0:
+                continue
+            ours, theirs = speed(user, observation), speed(enemy, observation, False)
+            if first["priority"] < 3 or first["priority"] == 3 and (theirs <= ours if reverse else theirs >= ours):
+                return 0.
+    # Reuse the existing pressure discount, without assuming our predicted
+    # KO or control must stop the foe. Enemy choices remain unknown.
+    early = [incoming[prior,t] for t,enemy in foes.items() if not _sleep_before_foe(first, user, enemy, observation)]
+    danger = max(early, default=0.) + .3 * max(0., sum(early) - max(early, default=0.))
+    survival = 1 - min(.8, .65 * danger / max(.1, hp(user))) if danger > hp(user)*.75 else 1.
+    return first["accuracy"] * survival
+
+
 def doubles(state):
     slots = _template(state,"doubles_turn").get("slots")
     if not isinstance(slots,list) or len(slots) != 2:
@@ -517,6 +559,7 @@ def doubles(state):
             continue
         score, damage_to, disabled = 0.,{t:0. for t in foes},{}
         fast_damage, contribution = {t:0. for t in foes}, [0.,0.]
+        prior_hits = {}
         switched = [team.get(_norm(c[0].get("species")),{"species":c[0].get("species")}) if c[0]["type"] == "switch" else active[i] for i,c in enumerate(pair)]
         protect = [c[2].get("name") in _PROTECT and c[2].get("previous") not in _PROTECT for c in pair]
         offensive = [False,False]
@@ -547,6 +590,18 @@ def doubles(state):
                     useful = min(remaining,dealt)
                     score += 100 * useful
                     contribution[i] += 100*useful
+                    prior = prior_hits.get(t)
+                    if prior is not None and hp(foe) == 1 and _norm(foe.get("ability")) in {"multiscale", "shadowshield"}:
+                        credit = _shield_break_credit(prior, i, active, pair, foe, foes, incoming, observation)
+                        if credit:
+                            broken = {**foe, "current_hp_fraction":.99}
+                            unshielded = damage(option, active[i], broken, observation, spread and len(foes)+int(name in _FRIENDLY)>1)
+                            extra = 100 * credit * max(0., min(remaining, unshielded)-useful)
+                            score += extra
+                            contribution[i] += extra
+                    prior_hits[t] = i
+                    # Conditional break credit deliberately does not enter
+                    # damage_to/fast_damage or certify an extra KO below.
                     if remaining > .01 and dealt >= remaining:
                         score += 32 + 12 * min(1.,max(incoming[j,t] for j in (0,1)))
                         contribution[i] += 32

@@ -1,4 +1,4 @@
-# Super War Dragon V10.6
+# Super War Dragon V10.7
 
 Self-hosted Python agent for Werewolf, Red Alert and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -32,10 +32,14 @@ duplicate watchdogs. Its recovery restarts the same fixed version.
 
 ## Current behavior
 
-- Pokemon preserves the exact V10.3 policy: match-local public draft cards,
+- Pokemon builds on V10.3: match-local public draft cards,
   approximate joint damage/speed, legal forced replacements, type/ability
   checks and priority-aware sleep scoring. It remains a heuristic, with known
-  limits in draft, support timing and damage estimates.
+  limits in draft, support timing and damage estimates. V10.7 corrects normal
+  multi-hit damage against an explicitly observed full-HP Multiscale or Shadow
+  Shield, and gives conservative conditional credit when a prior ally hit can
+  break the shield. This bonus never certifies a KO. Draft estimates remain
+  unchanged, and unknown abilities are not filled from public-card fallback.
 - Werewolf preserves V10.2: private role/header parsing, fallible public
   claims, living seer evidence and current-day vote coordination. Prior-day
   plans expire. Each seat has its own policy instance.
@@ -53,16 +57,16 @@ duplicate watchdogs. Its recovery restarts the same fixed version.
 
 ## Validation and limits
 
-The complete V10.6 suite passed **1008 tests and 4 subtests in 87.35 seconds**.
-The public checkout passed **311 focused checks**, including 172 transport,
-MCP adapter and authentication checks. Local tests and reduced request count
+The complete V10.7 suite passed **1034 tests and 4 subtests in 93.18 seconds**.
+The public checkout passed **266 focused checks**, covering current policies,
+audit, watchdog, transport, MCP adapter and authentication. Local tests and reduced request count
 do not establish real-platform speed or tournament win probability.
 
-At 04:45 PDT on October 16, completed external self-hosted tests total:
+At 05:12 PDT on October 16, completed external self-hosted tests total:
 
 | Game | Wins | Losses | Limits |
 | --- | ---: | ---: | --- |
-| Red Alert | 2 | 1 | Different versions/maps; V10.5 external test pending |
+| Red Alert | 3 | 1 | Different versions/maps; V10.6 external test running |
 | Pokemon | 1 | 6 | Different drafts/opponents; lone win against AWS agent |
 | Werewolf | 0 | 0 | Self-play completed, no external completed game yet |
 
@@ -71,13 +75,28 @@ V10.3. Keeping old selection with its new battle scoring still lost 8-16.
 Neither experiment is active here. V10.3 had previously tied V10.2 12-12 in
 another limited offline matrix. Fixed public rosters, custom observations,
 no platform draft and small samples prevent any high-probability win claim.
-All prior candidate tags remain available for review.
+V10.7's minimal Pokemon correction passed 33 controlled official-engine rule
+and action probes. A fixed 48-game holdout against V10.3 ended 24-24 with zero
+errors (724 decisions, 244 turns). All 96 worker identities and source hashes
+were verified; all paired actions and normalized transcripts were identical.
+This holdout therefore supports behavior equivalence on its samples, not a
+measured improvement. It uses fixed rosters and a custom adapter, without the
+platform draft. All prior candidate tags remain available for review.
 
 Completed Red Alert records showed idle tank production while infantry
 consumed income. Historical costs were missing, so replay validates the
 savings mechanism, not counterfactual build time or victory. V10.5 added one
 private cost-only snapshot from each seat's delivered static configuration;
-missing prices remain unknown. V10.6 online validation is still pending.
+missing prices remain unknown. V10.5 won its next external Red Alert test
+against Quicksilver in 7:31 with assets 17850 versus 0. All 46 decisions were
+reproduced from the completed own-seat records, and 49 commands were accepted.
+The observed tank savings mechanism worked; one game is not causal win proof.
+
+V10.6's transport completed Werewolf and Pokemon self-play with 16 and 38
+accepted game actions and no rejected actions. The Red Alert external test is
+still running. Measured self-play action/result latency did not establish a
+speed improvement. V10.7 keeps that transport unchanged; platform validation
+of the new Pokemon policy is pending.
 
 ## Data, operation and provenance
 
