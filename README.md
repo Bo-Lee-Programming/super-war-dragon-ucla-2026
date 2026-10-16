@@ -1,5 +1,9 @@
 # Super War Dragon V10.9
 
+This research branch adds an optional, explicitly scoped Red Alert Testing
+experiment. The default main branch and formal strategy are unchanged. See
+[RESEARCH_RA.md](RESEARCH_RA.md) before using the experimental entrypoint.
+
 Self-hosted Python agent for Werewolf, Red Alert and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance. Each release
 tag identifies fixed source; local validation does not establish tournament
@@ -30,6 +34,13 @@ for the account, keep the computer awake and online, and use one shared
 `--state-dir` when changing release directories. `--mode both` discovers Testing
 and registered tournament assignments. The OS lock prevents duplicate
 watchdogs; recovery restarts the same fixed version.
+
+For direct operation without the watchdog, `python -m agent --tournament`
+discovers registered tournament games, `python -m agent --match` discovers
+Testing games, and `python -m agent --tournament --match` enables both. Add
+`--agent examples.free_multigame_agent_v10` to select this policy. Waiting uses
+no AI tokens; the rule-based policy itself makes no model API calls. Use either
+the watchdog or one direct listener, never both at the same time.
 
 ## Current behavior
 
@@ -92,7 +103,8 @@ V10.7 Pokemon self-play completed with 32 accepted actions and no rejections;
 all decisions reproduced from each seat's own inputs. This confirmed platform
 compatibility, but did not exercise the new multi-hit shield scoring case.
 
-Completed external self-hosted tests through the latest V10.8 Pokemon result:
+Historical external-test snapshot recorded for the V10.9 release at 06:21 PDT
+on October 16, 2026 (later games are not included in this table):
 
 | Game | Wins | Losses | Limits |
 | --- | ---: | ---: | --- |
@@ -101,8 +113,9 @@ Completed external self-hosted tests through the latest V10.8 Pokemon result:
 | Werewolf | 0 | 0 | Self-play completed; no completed external game |
 
 These small, mixed-version samples do not support a high-probability win claim.
-One Red Alert external test remains in progress and is excluded. V10.9's
-Unaware correction has not completed a platform game.
+At that release, one Red Alert external test was in progress and excluded,
+and V10.9's Unaware correction had not completed a platform game. These are
+historical release notes, not current runtime or match-status indicators.
 
 ## Data, operation and provenance
 
