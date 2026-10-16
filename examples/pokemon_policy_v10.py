@@ -425,6 +425,18 @@ def _status_ok(name, foe, attacker, observation):
     return True
 
 
+def _sleep_before_foe(m, attacker, foe, observation):
+    """Estimate sleep before a normal-priority threat, not its hidden choice.
+
+    Future sleep value is separate. Equal speeds do not guarantee preventing
+    this turn's attack, and Trick Room reverses speed but never priority.
+    """
+    if m["priority"] != 0:
+        return m["priority"] > 0
+    ours, theirs = speed(attacker, observation), speed(foe, observation, False)
+    return ours < theirs if "trickroom" in flags(observation, "fields") else ours > theirs
+
+
 def doubles(state):
     slots = _template(state,"doubles_turn").get("slots")
     if not isinstance(slots,list) or len(slots) != 2:
@@ -552,7 +564,8 @@ def doubles(state):
                 if m["category"] == "status":
                     if name in {"spore","sleeppowder","hypnosis"}:
                         score += 26*m["accuracy"]
-                        disabled[t] = max(disabled.get(t,0),.7*m["accuracy"])
+                        if _sleep_before_foe(m, active[i], foe, observation):
+                            disabled[t] = max(disabled.get(t,0),.7*m["accuracy"])
                     elif name == "thunderwave":
                         score += 18 + 8*(speed(foe,observation,False)>speed(active[1-i],observation))
                     elif name == "willowisp":

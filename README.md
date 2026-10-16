@@ -1,4 +1,4 @@
-# Super War Dragon V10.2
+# Super War Dragon V10.3
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -31,9 +31,9 @@ No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The V10.2 candidate contains 41 Pokemon, 41 Werewolf, 23 Red Alert, and 9
+The V10.3 candidate contains 47 Pokemon, 41 Werewolf, 23 Red Alert, and 9
 audit/watchdog regression tests. Full-suite results are recorded with releases.
-The complete V10.2 suite passed 948 tests and 4 subtests.
+The complete V10.3 suite passed 954 tests and 4 subtests.
 The earlier V9 suite passed 834 tests plus 4 subtests. This is not a
 competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
@@ -150,4 +150,29 @@ V9 using Pokemon Showdown 0.11.10, with 446 decisions and no engine errors.
 This used three fixed roster pairs, two seeds and swapped sides under
 gen9vgc2025regg, without the platform's draft. The custom observation adapter,
 weak baseline and limited scenarios mean this is not a platform win-rate
-estimate. V10.2's online evaluation is pending.
+estimate. V10.2 subsequently won an external Pokemon test against preskai
+(AWS-hosted, runtime alias Baymax) in six turns, with three Pokemon remaining.
+All 14 actions were accepted. Its Werewolf self-play completed with 15 accepted
+actions and 21 messages; per-seat replay reproduced the chosen decisions.
+Across self-hosted versions, Pokemon external results are one win and four
+losses; Red Alert has two wins. Werewolf still lacks an external completed
+game. Opponents, drafts and versions differ, so these are not controlled
+strength or win-probability estimates.
+
+## V10.3 sleep timing correction
+
+The policy previously credited a slow sleep move with preventing damage from
+a faster attack in the same turn. Immediate prevention now depends on move
+priority, current estimated speed, Tailwind and already active Trick Room;
+future sleep value is retained. Speed ties are treated conservatively. This
+is an approximation against ordinary-priority threats, not knowledge of an
+opponent's hidden move.
+
+Six regressions cover full action choices and timing boundaries. In three
+paired real-engine tactical scenarios, the correction preserved a threatened
+Pelipper with Protect instead of relying on slower Spore. The public initial
+HP was deliberately constructed for this diagnostic. A separate 24-game
+paired test finished 12-12 against V10.2 with no engine errors; it does not
+establish an overall strength increase. The completed V10.2 winning trajectory
+retained all 14 decisions under same-state replay. V10.3 online testing is
+pending.
