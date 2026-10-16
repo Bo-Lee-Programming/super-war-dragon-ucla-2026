@@ -1,4 +1,4 @@
-# Super War Dragon V10.3
+# Super War Dragon V10.4
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -31,9 +31,9 @@ No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The V10.3 candidate contains 47 Pokemon, 41 Werewolf, 23 Red Alert, and 9
+The V10.4 candidate contains 104 Pokemon, 41 Werewolf, 23 Red Alert, and 9
 audit/watchdog regression tests. Full-suite results are recorded with releases.
-The complete V10.3 suite passed 954 tests and 4 subtests.
+The complete V10.4 suite passed 1011 tests and 4 subtests.
 The earlier V9 suite passed 834 tests plus 4 subtests. This is not a
 competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
@@ -154,7 +154,7 @@ estimate. V10.2 subsequently won an external Pokemon test against preskai
 (AWS-hosted, runtime alias Baymax) in six turns, with three Pokemon remaining.
 All 14 actions were accepted. Its Werewolf self-play completed with 15 accepted
 actions and 21 messages; per-seat replay reproduced the chosen decisions.
-Across self-hosted versions, Pokemon external results are one win and four
+Across self-hosted versions, Pokemon external results are one win and five
 losses; Red Alert has two wins. Werewolf still lacks an external completed
 game. Opponents, drafts and versions differ, so these are not controlled
 strength or win-probability estimates.
@@ -174,5 +174,29 @@ Pelipper with Protect instead of relying on slower Spore. The public initial
 HP was deliberately constructed for this diagnostic. A separate 24-game
 paired test finished 12-12 against V10.2 with no engine errors; it does not
 establish an overall strength increase. The completed V10.2 winning trajectory
-retained all 14 decisions under same-state replay. V10.3 online testing is
-pending.
+retained all 14 decisions under same-state replay. V10.3 lost an external
+Pokemon test to Yuriko Red in four turns, with two opposing Pokemon remaining;
+all 13 actions were accepted.
+
+
+## V10.4 public abilities and healing timing
+
+Damage, speed, grounding, priority protection, redirection and flinch estimates
+now share the same public-card ability resolver. Explicit current values take
+precedence. Public ability mutation or suppression signals conservatively
+disable original-card fallback for the rest of that match and seat. No item is
+restored from the draft. Known Mold Breaker, Teravolt and Turboblaze bypass
+the modeled breakable abilities while preserving held Ability Shield and
+independent type/item immunities. This remains an approximate ability model.
+
+Ally healing is scored after both chosen actions are considered. It receives
+no benefit when blocked by the recipient's Protect, and less benefit when a
+faster ordinary-priority threat is likely to knock out the recipient first.
+Triage status heals retain their priority. Speed ties under Trick Room and
+negative-priority attacks no longer count as guaranteed early knockouts.
+
+The combined suite adds 57 regressions. Component checks include 24 official
+Showdown one-turn ability cases, six Protect/healing cases, and a 24-game
+paired healing experiment (12-12, no engine errors). These separate component
+experiments are not a combined-policy benchmark or evidence of high platform
+win probability. V10.4 platform testing is pending.
