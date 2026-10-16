@@ -463,10 +463,32 @@ class FastRedAlertV10:
                                  if actor_type(e) not in NONCOMBAT)
         visible_resistance += sum(self._value(e, context) for e in enemy_buildings
                                   if actor_type(e) in {"pbox", "gun", "ftur", "tsla"})
+        # Do not feed an unseen defense the same small wave after losing
+        # trades. If the economy can reinforce, assemble a healthy tank pair
+        # or their equivalent material before another blind push. A visible
+        # objective, an emergency, or the existing late desperation rule can
+        # still use the ordinary assault logic.
+        tank_types = {"1tnk", "2tnk", "3tnk", "4tnk"}
+        main_tank = next((x for x in ("3tnk", "2tnk", "1tnk") if x in train_options), "")
+        assembly_ready = True
+        working_harvesters = any(h.get("idle") is False and
+                                str(h.get("act", "")).casefold() == "findanddeliverresources"
+                                for h in harvesters)
+        if (not desperate and not enemy_buildings and not threats
+                and built["weap"] and built["proc"] and working_harvesters and main_tank
+                and int0(military.get("deaths_cost")) > int0(military.get("kills_cost"))):
+            departing = sorted(available, key=lambda u:self._value(u, context), reverse=True)[:50]
+            if len(available) >= 8:
+                departing = departing[:-2]
+            healthy_tanks = sum(actor_type(u) in tank_types and int0(u.get("hp"), 100) >= 50
+                                for u in departing)
+            assembly_ready = (healthy_tanks >= 2 or
+                              sum(self._value(u, context) for u in departing) >= 2 * self._cost(main_tank, context))
+
         # Surviving combat strength remains usable after losing a refinery.
         # Economy loss must not disable an otherwise sufficient counterattack;
         # the strength, visible-resistance and base-defense gates still apply.
-        if (not threats and not defend_lead and len(available) >= (3 if desperate else 4)
+        if (not threats and not defend_lead and assembly_ready and len(available) >= (3 if desperate else 4)
                 and attack_value >= (700 if desperate else 1400)
                 and (desperate or attack_value >= visible_resistance * 1.35)):
             attack_cell = None
