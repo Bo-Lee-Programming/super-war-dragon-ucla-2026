@@ -23,62 +23,6 @@ _BLOCK = {"levitate":"ground", "flashfire":"fire", "waterabsorb":"water", "storm
           "motordrive":"electric", "sapsipper":"grass", "eartheater":"ground"}
 
 
-# Only defensive abilities already handled by this policy. Showdown 0.11.10
-# marks these breakable; Shadow Shield and Prism Armor intentionally are not.
-_BREAKABLE = set(_BLOCK) | {"wonderguard", "multiscale", "filter", "solidrock", "thickfat",
-    "dazzling", "queenlymajesty", "armortail", "goodasgold", "magicbounce", "insomnia",
-    "vitalspirit", "sweetveil", "overcoat", "limber", "waterveil", "waterbubble",
-    "thermalexchange", "innerfocus", "shielddust"}
-_BREAKERS = {"moldbreaker", "teravolt", "turboblaze"}
-
-
-def known_ability(mon):
-    """Known ability identity, not a complete model of ability suppression."""
-    current = mon.get("ability")
-    if current is not None:  # Empty/unknown current values do not revive the draft.
-        return _norm(current) if isinstance(current, str) else ""
-    if mon.get("_public_ability_fallback_blocked"):
-        return ""
-    return _norm(_dict(mon.get("public_set")).get("ability"))
-
-
-def target_ability(attacker, defender):
-    ability = known_ability(defender)
-    if (known_ability(attacker) in _BREAKERS and ability in _BREAKABLE
-            and _norm(defender.get("item")) != "abilityshield"):
-        return ""
-    return ability
-
-
-def _unsafe_ability_fallback(observation):
-    # Conservatively stop using original draft abilities after any observed
-    # mutation/suppression. This does not pretend to reconstruct effective
-    # current abilities or restore them when a suppression ends.
-    if "neutralizinggas" in flags(observation, "fields"):
-        return True
-    def gastro(value):
-        if isinstance(value, dict):
-            return ("gastroacid" in flags(value, "effects")
-                    or any(gastro(v) for v in value.values()))
-        return isinstance(value, list) and any(gastro(v) for v in value)
-    if gastro(observation):
-        return True
-    for line in observation.get("protocol_log", []):
-        if not isinstance(line, str):
-            continue
-        parts = line.split("|")
-        if len(parts) < 2:
-            continue
-        event = parts[1]
-        effect = _norm(parts[3]).removeprefix("ability").removeprefix("move") if len(parts) > 3 else ""
-        if (event in {"-endability", "-transform", "detailschange", "-formechange"}
-                or event in {"-ability", "-end"} and effect == "neutralizinggas"
-                or event == "-ability" and any(p.startswith("[from]") for p in parts[4:])
-                or event == "-activate" and effect in {"skillswap", "mummy", "lingeringaroma", "wanderingspirit"}):
-            return True
-    return False
-
-
 def number(value, default=0):
     return float(value) if type(value) in (int, float) else float(default)
 
@@ -118,7 +62,7 @@ def move(option, observation=None, attacker=None):
               "target":data.get("target", "normal")}
     accuracy = option.get("accuracy", data.get("accuracy", 100))
     result["accuracy"] = 1. if accuracy is True else max(0., min(1., number(accuracy, 100) / (100 if number(accuracy, 100) > 1 else 1)))
-    if result["category"] == "status" and known_ability(attacker or {}) == "prankster":
+    if result["category"] == "status" and _norm((attacker or {}).get("ability")) == "prankster":
         result["priority"] += 1
     weather = flags(observation or {}, "weather")
     if name == "weatherball" and weather:
@@ -138,7 +82,7 @@ def move(option, observation=None, attacker=None):
         result["power"] *= multihit
     elif isinstance(multihit, list) and len(multihit) == 2:
         hits = 4.5 if _norm((attacker or {}).get("item")) == "loadeddice" else 3.
-        if known_ability(attacker or {}) == "skilllink":
+        if _norm((attacker or {}).get("ability")) == "skilllink":
             hits = multihit[1]
         result["power"] *= hits
     if name in {"waterspout", "eruption", "dragonenergy"}:
@@ -176,7 +120,7 @@ def speed(mon, observation, own=True):
     if _norm(mon.get("item")) == "choicescarf":
         result *= 1.5
     weather = flags(observation, "weather")
-    ability = known_ability(mon)
+    ability = _norm(mon.get("ability"))
     if (ability == "swiftswim" and weather & {"raindance", "primordialsea"}
             or ability == "chlorophyll" and weather & {"sunnyday", "desolateland"}
             or ability == "sandrush" and "sandstorm" in weather
@@ -185,9 +129,8 @@ def speed(mon, observation, own=True):
     return result
 
 
-def grounded(mon, attacker=None):
-    ability = target_ability(attacker, mon) if attacker is not None else known_ability(mon)
-    return ("flying" not in types(mon) and ability != "levitate"
+def grounded(mon):
+    return ("flying" not in types(mon) and _norm(mon.get("ability")) != "levitate"
             and _norm(mon.get("item")) != "airballoon")
 
 
@@ -198,7 +141,7 @@ def damage(option, attacker, defender, observation=None, spread=False):
     if m["category"] not in {"physical", "special"} or m["power"] <= 0:
         return 0.
     element, name = m["type"], m["name"]
-    ability = target_ability(attacker, defender)
+    ability = _norm(defender.get("ability"))
     if (_BLOCK.get(ability) == element
             or element == "ground" and _norm(defender.get("item")) == "airballoon"):
         return 0.
@@ -223,7 +166,7 @@ def damage(option, attacker, defender, observation=None, spread=False):
         defense *= 1.5
     value = (.44 * m["power"] * offense / max(1, defense) + 2) * effectiveness
     value *= 1.5 if element in types(attacker) else 1.
-    if element in types(attacker) and known_ability(attacker) == "adaptability":
+    if element in types(attacker) and _norm(attacker.get("ability")) == "adaptability":
         value *= 4/3
     item = _norm(attacker.get("item"))
     if item == "lifeorb":
@@ -231,20 +174,20 @@ def damage(option, attacker, defender, observation=None, spread=False):
     if item == ("choiceband" if physical else "choicespecs"):
         value *= 1.5
     if physical and _norm(attacker.get("status")) in {"brn", "burn"} and name != "facade":
-        value *= 1.5 if known_ability(attacker) == "guts" else .5
+        value *= 1.5 if _norm(attacker.get("ability")) == "guts" else .5
     weather = flags(observation, "weather")
     if weather & {"raindance", "primordialsea"}:
         value *= 1.5 if element == "water" else .5 if element == "fire" else 1
     if weather & {"sunnyday", "desolateland"}:
         value *= 1.5 if element == "fire" else .5 if element == "water" else 1
     fields = flags(observation, "fields")
-    if "grassyterrain" in fields and grounded(defender, attacker) and name in {"earthquake", "bulldoze", "magnitude"}:
+    if "grassyterrain" in fields and grounded(defender) and name in {"earthquake", "bulldoze", "magnitude"}:
         value *= .5
     if grounded(attacker):
         if (element == "grass" and "grassyterrain" in fields or element == "electric" and "electricterrain" in fields
                 or element == "psychic" and "psychicterrain" in fields):
             value *= 1.3
-    if "mistyterrain" in fields and grounded(defender, attacker) and element == "dragon":
+    if "mistyterrain" in fields and grounded(defender) and element == "dragon":
         value *= .5
     if ability in {"multiscale", "shadowshield"} and hp(defender) == 1:
         value *= .5
@@ -449,9 +392,9 @@ def _apply_public_stat_effects(observation, legal_actions):
 def _priority_blocked(mon, foe, observation, m, foes):
     if m["priority"] <= 0:
         return False
-    return (known_ability(mon) == "prankster" and m["category"] == "status" and "dark" in types(foe)
-            or "psychicterrain" in flags(observation,"fields") and grounded(foe, mon)
-            or any(target_ability(mon, f) in {"dazzling","queenlymajesty","armortail"} for f in foes))
+    return (_norm(mon.get("ability")) == "prankster" and m["category"] == "status" and "dark" in types(foe)
+            or "psychicterrain" in flags(observation,"fields") and grounded(foe)
+            or any(_norm(f.get("ability")) in {"dazzling","queenlymajesty","armortail"} for f in foes))
 
 
 def _status_ok(name, foe, attacker, observation):
@@ -459,16 +402,16 @@ def _status_ok(name, foe, attacker, observation):
     # match's public draft card already disclosed it. A current revealed
     # ability overrides that original set. Do not revive consumed items from
     # the draft: item=None is meaningful and unknown_item is still unknown.
-    ability = target_ability(attacker, foe)
+    ability = _norm(foe.get("ability") or _dict(foe.get("public_set")).get("ability"))
     item = _norm(foe.get("item"))
     if ability in {"goodasgold", "magicbounce"}:
         return False
     if name in {"spore","sleeppowder","hypnosis","thunderwave","willowisp","toxic"} and foe.get("status"):
         return False
-    if "mistyterrain" in flags(observation,"fields") and grounded(foe, attacker):
+    if "mistyterrain" in flags(observation,"fields") and grounded(foe):
         return False
     if name in {"spore","sleeppowder","hypnosis"}:
-        if ability in {"insomnia","vitalspirit","sweetveil"} or ("electricterrain" in flags(observation,"fields") and grounded(foe, attacker)):
+        if ability in {"insomnia","vitalspirit","sweetveil"} or ("electricterrain" in flags(observation,"fields") and grounded(foe)):
             return False
         # Hypnosis is not a powder move: Grass, Goggles and Overcoat do not
         # block it, while all three sleep moves fail on existing major status.
@@ -542,7 +485,7 @@ def doubles(state):
                         or m["category"] == "status" and not _status_ok(m["name"],foes[target],active[i],observation)):
                         continue
                     if target in foes and m["type"] in {"water","electric"} and any(
-                            target_ability(active[i], f) == ("stormdrain" if m["type"] == "water" else "lightningrod")
+                            _norm(f.get("ability")) == ("stormdrain" if m["type"] == "water" else "lightningrod")
                             for f in foes.values()):
                         continue
                     action = {"type":"move","move_id":option["move_id"]}
@@ -577,7 +520,6 @@ def doubles(state):
         switched = [team.get(_norm(c[0].get("species")),{"species":c[0].get("species")}) if c[0]["type"] == "switch" else active[i] for i,c in enumerate(pair)]
         protect = [c[2].get("name") in _PROTECT and c[2].get("previous") not in _PROTECT for c in pair]
         offensive = [False,False]
-        pending_heals = []
         order = sorted((0,1),key=lambda i:(pair[i][2].get("priority",0), speed(active[i],observation)*(-1 if "trickroom" in flags(observation,"fields") else 1)),reverse=True)
         for i in order:
             action,option,m = pair[i]
@@ -590,7 +532,7 @@ def doubles(state):
                 improvement = sum(incoming[i,t] - pressure(foe,target,observation) for t,foe in foes.items())
                 score += 30 * improvement - (0 if forced else 23)
                 score += 18 * max((pressure(target,foe,observation) for foe in foes.values()),default=0) + 5*hp(target)
-                if known_ability(active[i]) == "regenerator" and hp(active[i]) < .7 and not forced:
+                if _norm(active[i].get("ability")) == "regenerator" and hp(active[i]) < .7 and not forced:
                     score += 8
                 continue
             name, target = m["name"], action.get("target",0)
@@ -609,9 +551,7 @@ def doubles(state):
                         score += 32 + 12 * min(1.,max(incoming[j,t] for j in (0,1)))
                         contribution[i] += 32
                     damage_to[t] += dealt
-                    if m["priority"] > 0 or (m["priority"] == 0 and (speed(active[i],observation) < speed(foe,observation,False)
-                            if "trickroom" in flags(observation,"fields")
-                            else speed(active[i],observation) > speed(foe,observation,False))):
+                    if m["priority"] > 0 or ((speed(active[i],observation)>speed(foe,observation,False)) != ("trickroom" in flags(observation,"fields"))):
                         fast_damage[t] += dealt
                     if name in {"icywind","electroweb","bulldoze"}:
                         score += 5 * (stat(foe,"spe") > max(stat(mon,"spe") for mon in active))
@@ -619,7 +559,7 @@ def doubles(state):
                         score += 15 * min(1-hp(active[i]),dealt*.5)
                     if name in {"dracometeor","overheat","leafstorm","makeitrain"} and dealt < remaining:
                         score -= 7
-                if name == "fakeout" and dealt > 0 and target_ability(active[i], foe) not in {"innerfocus","shielddust"} and _norm(foe.get("item")) != "covertcloak":
+                if name == "fakeout" and dealt > 0 and _norm(foe.get("ability")) not in {"innerfocus","shielddust"} and _norm(foe.get("item")) != "covertcloak":
                     disabled[t] = max(disabled.get(t,0),.95)
                 if m["category"] == "status":
                     if name in {"spore","sleeppowder","hypnosis"}:
@@ -640,7 +580,8 @@ def doubles(state):
                 harm = damage(option,active[i],switched[1-i],observation,True)
                 score -= 125*min(hp(switched[1-i]),harm) + 35*(harm>=hp(switched[1-i]))
             if target is not None and target < 0 and name in {"pollenpuff","healpulse","floralhealing"}:
-                pending_heals.append((i, 0 if target == -1 else 1, m))
+                healed = active[0 if target == -1 else 1]
+                score += 75*min(.5,1-hp(healed))
             if name in _PROTECT:
                 risk = sum(incoming[i,t] for t in foes)*.55
                 score += min(35.,risk*35) - 23
@@ -674,32 +615,8 @@ def doubles(state):
                     partner_risk = sum(incoming[1-i,t] for t in foes)
                     self_risk = sum(incoming[i,t] for t in foes)
                     score += 15*(partner_risk-self_risk) + 7
-            elif m["category"] == "status" and target not in foes and name not in (_PROTECT | {"healpulse","floralhealing"}):
+            elif m["category"] == "status" and target not in foes and name not in _PROTECT:
                 score += 2
-        # All chosen attacks and control must be known before valuing a heal,
-        # independent of which board slot happened to be enumerated first.
-        for i, patient, m in pending_heals:
-            if pair[patient][2].get("name") in _PROTECT:
-                # These ally-targeted heals are blocked by the patient's guard.
-                continue
-            name = m["name"]
-            healed = active[patient]
-            healing = 75*min(.5,1-hp(healed))
-            # A later heal cannot rescue a teammate already knocked out.
-            # Use the existing approximate normal-priority threat model;
-            # this discounts uncertainty rather than predicting a hidden
-            # enemy choice. Triage affects these status heals, not Puff.
-            priority = m["priority"] + (3 if name in {"healpulse","floralhealing"}
-                        and known_ability(active[i]) == "triage" else 0)
-            early = [incoming[patient,t]*(1-disabled.get(t,0)) for t,foe in foes.items()
-                     if priority <= 0 and fast_damage[t] < hp(foe)
-                     and (speed(foe,observation,False) <= speed(active[i],observation)
-                          if "trickroom" in flags(observation,"fields")
-                          else speed(foe,observation,False) >= speed(active[i],observation))]
-            danger = max(early,default=0) + .3*max(0,sum(early)-max(early,default=0))
-            if danger > hp(healed)*.75:
-                healing *= 1-min(.8,.65*danger/max(.1,hp(healed)))
-            score += healing
         # Value preventing enemy actions; a fast KO is better than a slow trade.
         for t,foe in foes.items():
             neutralized = disabled.get(t,0.)
@@ -730,26 +647,19 @@ class PokemonPolicyV10:
     """Per-instance memory of publicly shown draft cards, scoped by match/seat."""
     def __init__(self):
         self._cards = {}
-        self._unsafe_public_abilities = set()
 
     def prepare(self, state, context):
         session = getattr(context,"session_id",None) or _dict(state.raw).get("session_id")
         agent = getattr(context,"agent_id",None)
         catalog = {}
-        key = (session, agent) if session and agent else None
-        if key is not None:
+        if session and agent:
+            key = (session,agent)
             if key not in self._cards:
                 if len(self._cards) >= 4:
-                    expired = next(iter(self._cards))
-                    self._cards.pop(expired)
-                    self._unsafe_public_abilities.discard(expired)
+                    self._cards.pop(next(iter(self._cards)))
                 self._cards[key] = {}
             catalog = self._cards[key]
         original = _observation(_dict(state.raw))
-        unsafe = _unsafe_ability_fallback(original)
-        if unsafe and key is not None:
-            self._unsafe_public_abilities.add(key)
-        unsafe = unsafe or key in self._unsafe_public_abilities
         for card in original.get("available_cards",[]):
             if isinstance(card,dict) and card.get("species"):
                 catalog[_norm(card["species"])] = deepcopy(card)
@@ -761,8 +671,6 @@ class PokemonPolicyV10:
                 species = _norm(value.get("species"))
                 if species in catalog:
                     value["public_set"] = catalog[species]
-                    if unsafe:
-                        value["_public_ability_fallback_blocked"] = True
                 for k,v in list(value.items()):
                     if k != "public_set":
                         annotate(v)

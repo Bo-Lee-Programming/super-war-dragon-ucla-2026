@@ -1,4 +1,4 @@
-# Super War Dragon V10.4
+# Super War Dragon V10.5
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -31,9 +31,19 @@ No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The V10.4 candidate contains 104 Pokemon, 41 Werewolf, 23 Red Alert, and 9
-audit/watchdog regression tests. Full-suite results are recorded with releases.
-The complete V10.4 suite passed 1011 tests and 4 subtests.
+V10.5 restores the exact V10.3 Pokemon policy and adds only Red Alert tank
+budget protection plus a private, cost-only audit snapshot. It has 47 Pokemon,
+41 Werewolf, 33 Red Alert, and 18 audit/watchdog focused regression tests.
+The complete V10.5 suite passed 973 tests and 4 subtests in 82.82 seconds;
+all 139 focused tests also passed in the public checkout. The 24 deprecation
+warnings originate in the retained upstream MCP integration.
+
+V10.4 was rejected after its combined 24-game offline comparison lost 6-18
+to V10.3. Keeping V10.3 selection with V10.4 battle scoring still lost 8-16.
+Those experiments are not the V10.5 policy. Prior candidate tags are retained.
+As of October 16, 04:45 PDT, completed external self-hosted tests total Red Alert
+2 wins / 1 loss, Pokemon 1 win / 6 losses, and no completed external Werewolf
+game. These small samples do not demonstrate a competitive advantage.
 The earlier V9 suite passed 834 tests plus 4 subtests. This is not a
 competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
@@ -200,3 +210,20 @@ Showdown one-turn ability cases, six Protect/healing cases, and a 24-game
 paired healing experiment (12-12, no engine errors). These separate component
 experiments are not a combined-policy benchmark or evidence of high platform
 win probability. V10.4 platform testing is pending.
+
+
+## V10.5 Red Alert production correction
+
+When a main battle tank is legally unlocked, the vehicle queue is empty and
+there is no visible base threat, reserve the next tank's cost before buying
+infantry. Keep the vehicle purchase threshold separate so its price is not
+reserved twice. Harvester recovery, infrastructure and emergency defense keep
+their previous priority; do not spend this tank budget on a cheaper vehicle.
+
+Completed own-seat records exposed seven idle, unthreatened production windows
+in the Trapped loss, but the old logs did not include official costs. The
+counterfactual replay establishes budget behavior, not a faster tank or a win.
+The new private audit records only finite nonnegative prices from the static
+configuration already delivered to that seat, once per match/seat. Missing
+prices remain explicitly unknown. It never feeds records back into the policy.
+Platform validation of this production change is still pending.

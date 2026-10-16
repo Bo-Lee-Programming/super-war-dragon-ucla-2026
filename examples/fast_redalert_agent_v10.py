@@ -416,9 +416,19 @@ class FastRedAlertV10:
                 # Without this, infantry and APCs consume every new credit and
                 # the service depot / main battle tank unlock never happens.
                 reserved = max(reserved, self._cost("fix", context)+150)
+        # A newly unlocked tank otherwise loses every income deposit to the
+        # infantry scheduler that runs first. Save for one tank only while the
+        # vehicle line is empty and local defense is not urgently requested.
+        # Keep this separate from the operating floor used by vehicle purchase:
+        # adding the tank's cost to that floor would count its price twice.
+        next_tank = next((x for x in ("3tnk", "2tnk", "1tnk") if x in train_options), "")
+        save_for_tank = bool(built["weap"] and next_tank and not vehicle_q
+                            and not used_vehicle_queue and not threats)
+        infantry_reserved = (max(reserved, self._cost(next_tank, context)+max(150, reserved))
+                             if save_for_tank else reserved)
         if (want_infantry and built["barr"]+built["tent"]+built["tenf"] > 0
-                and len(infantry_q) <= 2 and cash_budget >= self._cost(want_infantry, context)+reserved):
-            count = min(3, max(1, (cash_budget-reserved)//max(1,self._cost(want_infantry, context))))
+                and len(infantry_q) <= 2 and cash_budget >= self._cost(want_infantry, context)+infantry_reserved):
+            count = min(3, max(1, (cash_budget-infantry_reserved)//max(1,self._cost(want_infantry, context))))
             count = min(count, max(1, 4-len(infantry_q)))
             propose({"cmd": "train", "item": want_infantry, "count": count},
                     tag="train-inf", interval=65,
@@ -429,7 +439,9 @@ class FastRedAlertV10:
         if built["weap"] > 0 and len(vehicle_q) < 2 and cash_budget >= 950:
             # Both Soviet factions can use heavy tanks; legal options decide,
             # not an incomplete hard-coded faction-name check.
-            candidates_tanks = ("3tnk","2tnk","1tnk","apc","ftrk","jeep")
+            # Do not spend the saved tank budget on a cheaper substitute.
+            candidates_tanks = ((next_tank,) if save_for_tank else
+                                ("3tnk","2tnk","1tnk","apc","ftrk","jeep"))
             vehicle = next((x for x in candidates_tanks if
                             x in train_options and cash_budget >= self._cost(x,context)+max(150,reserved)),"")
             if vehicle:
