@@ -1,4 +1,4 @@
-# Super War Dragon V8
+# Super War Dragon V9
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -13,8 +13,8 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m pytest -q
 python scripts/configure_official_key_v7.py
-python -m agent --check-tournament --agent examples.free_multigame_agent_v8
-python -m agent --match --agent examples.free_multigame_agent_v8
+python -m agent --check-tournament --agent examples.free_multigame_agent_v9
+python -m agent --match --agent examples.free_multigame_agent_v9
 ```
 
 Select Self Hosted in Agent Configuration and use your own Official Agent Key.
@@ -23,14 +23,14 @@ Never commit `.env`. Run only one supervisor for this account.
 `--match` listens for Testing matches only. The read-only preflight checks
 registration and connectivity without playing a game.
 
-Agent factory: `examples.free_multigame_agent_v8:create_agent`.
+Agent factory: `examples.free_multigame_agent_v9:create_agent`.
 V7 imports previous policy modules; keep the complete source tree.
 No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The development workstation passed 826 tests plus 4 subtests for V8,
-including 15 V7 and 12 V8 regression tests. These include 400 synthetic Red Alert observations
+The development workstation passed 834 tests plus 4 subtests for V9,
+including 15 V7, 12 V8 and 8 V9 regression tests. These include 400 synthetic Red Alert observations
 and 18 Pokemon target scenarios. This is not a competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 platform validation is in progress.
 
@@ -65,3 +65,15 @@ Publishing this source does not itself register or start a tournament entry.
   do not try placing a completed infantry unit as a building.
 - Twelve targeted V8 regression cases cover these changes. Original V7 source
   and its tests remain available for comparison.
+## V9 Pokemon metadata correction
+
+The live draft roster dictionary is keyed by agent IDs; V9 uses the SDK's
+own agent ID to identify its public draft roster. Battle targeting now joins
+legal target labels to the participant-visible current opponent Pokemon.
+It uses exposed type/ability, stat boosts, base stats, rain/sun and Grassy
+Terrain when ranking damaging actions. It avoids explicitly empty targets.
+The stat ratio is a heuristic (not a full damage calculator); hidden opponent
+sets are never inferred as certain facts. Eight additional regressions cover
+these cases and replay the V8 spread checks. Werewolf and Red Alert remain V8.
+V8's external Pokemon test was a loss in six turns (opponent 2/4 remaining).
+V9 platform testing is pending; no competitive advantage is established.
