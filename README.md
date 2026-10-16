@@ -1,4 +1,4 @@
-# Super War Dragon V7
+# Super War Dragon V8
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -13,8 +13,8 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m pytest -q
 python scripts/configure_official_key_v7.py
-python -m agent --check-tournament --agent examples.free_multigame_agent_v7
-python -m agent --match --agent examples.free_multigame_agent_v7
+python -m agent --check-tournament --agent examples.free_multigame_agent_v8
+python -m agent --match --agent examples.free_multigame_agent_v8
 ```
 
 Select Self Hosted in Agent Configuration and use your own Official Agent Key.
@@ -23,16 +23,16 @@ Never commit `.env`. Run only one supervisor for this account.
 `--match` listens for Testing matches only. The read-only preflight checks
 registration and connectivity without playing a game.
 
-Agent factory: `examples.free_multigame_agent_v7:create_agent`.
+Agent factory: `examples.free_multigame_agent_v8:create_agent`.
 V7 imports previous policy modules; keep the complete source tree.
 No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The development workstation passed 814 tests plus 4 subtests before publication,
-including 15 V7 regressions. These include 400 synthetic Red Alert observations
+The development workstation passed 826 tests plus 4 subtests for V8,
+including 15 V7 and 12 V8 regression tests. These include 400 synthetic Red Alert observations
 and 18 Pokemon target scenarios. This is not a competitive win-rate estimate.
-Platform testing of this self-hosted version is still pending.
+V7 completed self-play in all three games and one external Pokemon match (a loss). V8 platform validation is in progress.
 
 The code uses heuristic scoring, not a solved game strategy. V7 addresses
 economy reserve handling, recovery after losing a construction yard, joint
@@ -51,3 +51,17 @@ This repository contains participant code and development tests only. It
 does not contain credentials, private configuration, match records, or
 opponents' private observations. Each seat uses only its own game information.
 Publishing this source does not itself register or start a tournament entry.
+
+## V8 corrections from platform testing
+
+- Parse the official Werewolf plain-text private header, including role,
+  fellow wolves and investigations. Public discussion is never parsed as
+  private evidence. Earlier V7 tests used JSON-shaped observations and missed
+  this integration bug.
+- Score spread Pokemon attacks against visible opponents and the actual
+  partner, including a selected protective move or switch. Preserve known
+  type and ability immunities. These remain heuristics, not exact damage.
+- Treat an explicitly empty Red Alert placement list as no available placement;
+  do not try placing a completed infantry unit as a building.
+- Twelve targeted V8 regression cases cover these changes. Original V7 source
+  and its tests remain available for comparison.

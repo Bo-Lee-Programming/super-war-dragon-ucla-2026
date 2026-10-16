@@ -29,3 +29,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Private per-seat local diagnostics
+.local_test_observations/
