@@ -32,3 +32,4 @@ htmlcov/
 
 # Private per-seat local diagnostics
 .local_test_observations/
+.local_runtime/
