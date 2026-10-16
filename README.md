@@ -1,4 +1,4 @@
-# Super War Dragon V10.8
+# Super War Dragon V10.9
 
 Self-hosted Python agent for Werewolf, Red Alert and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance. Each release
@@ -41,13 +41,15 @@ watchdogs; recovery restarts the same fixed version.
   enemy buildings, base emergencies, unavailable economic prerequisites and
   the existing late desperation rule bypass this additional hold. Production,
   defense, mining recovery and retreat behavior are unchanged.
-- **Pokemon:** retains V10.7's V10.3-based draft and battle policy, including
-  priority-aware sleep, legal forced replacements and the minimal full-HP
-  Multiscale/Shadow Shield correction. Ordinary multi-hit damage halves only
-  its first hit. Earlier ally hits receive conservative conditional credit,
-  which never certifies a KO. Draft estimates stay unchanged; unknown abilities
-  are not filled through public-card fallback. Damage, support timing and
-  drafting remain approximate.
+- **Pokemon:** V10.9 adds a limited correction for currently visible Unaware
+  to the V10.7 policy. Battle damage ignores the appropriate opposing stat
+  stages, including Body Press and Foul Play, while preserving other stat
+  modifiers. Known ability suppression, ability-bypassing attacks and Ability
+  Shield are handled within this correction. Draft and lineup estimates stay
+  unchanged; no ability is inferred from species or public-card fallback.
+  Priority-aware sleep, legal forced replacements and the earlier conservative
+  Multiscale/Shadow Shield correction remain. Damage, timing and drafting are
+  still approximate.
 - **Werewolf:** retains V10.2's private role/header parsing, fallible public
   claims, living seer evidence and current-day vote coordination. Prior-day
   plans expire, and every seat has its own policy instance.
@@ -60,8 +62,15 @@ watchdogs; recovery restarts the same fixed version.
 
 ## Validation and limits
 
-The V10.8 full suite passed **1050 tests and 4 subtests in 83.49 seconds**, with
-no warnings. The public checkout passed **282 focused checks in 10.28 seconds**.
+V10.9 passed **1084 tests and 4 subtests** in 103.61 seconds with no warnings.
+The public checkout passed **316 focused tests** in 12.52 seconds.
+
+The Unaware correction passed **127 related checks**, including **34 new
+regressions**. Twenty paired official-engine damage cases confirmed the stage,
+ability suppression and bypass boundaries. Replaying all 17 own-seat inputs
+from one completed V10.8 external loss produced the same legal actions as the
+original. This establishes a mechanical correction without showing a different
+battle outcome or improved win rate.
 
 The assembly candidate passed 49 focused checks, including 16 new regressions.
 An offline replay of 229 completed own-seat inputs kept all 46 decisions from
@@ -71,27 +80,29 @@ checks the assembly mechanism on fixed historical inputs. It cannot show
 counterfactual battle outcomes or a win-rate improvement, and an active mining
 activity does not guarantee future income.
 
-The retained Pokemon correction passed 33 controlled official-engine cases.
+The earlier V10.7 shield correction passed 33 controlled official-engine cases.
 A fixed 48-game holdout against V10.3 ended 24–24 with zero errors across
 724 decisions and 244 turns. All 96 worker identities and source hashes were
 verified. Paired actions and normalized transcripts were identical, so this
-supports behavior equivalence on those samples. Fixed rosters, a custom
+supports behavior equivalence for that earlier version on those samples.
+The holdout has not been rerun or used to tune V10.9. Fixed rosters, a custom
 adapter and the absence of platform drafting limit the comparison.
 
 V10.7 Pokemon self-play completed with 32 accepted actions and no rejections;
 all decisions reproduced from each seat's own inputs. This confirmed platform
 compatibility, but did not exercise the new multi-hit shield scoring case.
 
-Completed external self-hosted tests through the latest V10.6 Red Alert result:
+Completed external self-hosted tests through the latest V10.8 Pokemon result:
 
 | Game | Wins | Losses | Limits |
 | --- | ---: | ---: | --- |
-| Red Alert | 3 | 2 | Mixed versions/maps; latest V10.6 test was a loss |
-| Pokemon | 1 | 6 | Mixed drafts/opponents; not a V10.8 estimate |
+| Red Alert | 3 | 3 | Mixed versions/maps; latest V10.8 Trapped test was a time-limit loss |
+| Pokemon | 1 | 7 | Mixed drafts/opponents; latest V10.8 test was a loss |
 | Werewolf | 0 | 0 | Self-play completed; no completed external game |
 
 These small, mixed-version samples do not support a high-probability win claim.
-V10.8's new assembly rule has not yet completed platform validation.
+One Red Alert external test remains in progress and is excluded. V10.9's
+Unaware correction has not completed a platform game.
 
 ## Data, operation and provenance
 

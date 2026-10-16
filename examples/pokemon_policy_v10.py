@@ -161,8 +161,33 @@ def damage(option, attacker, defender, observation=None, spread=False):
         attack_stat = "def"
     if name in {"psyshock", "psystrike"}:
         defense_stat = "def"
-    offense = stat(defender if name == "foulplay" else attacker, attack_stat)
-    defense = stat(defender, defense_stat)
+    offense_mon = defender if name == "foulplay" else attacker
+    defense_mon = defender
+    if battle_sequence:
+        # Unaware changes stat stages, not EVs, nature, items or Paradox boosts.
+        # Foul Play borrows its target's Atk, but its offensive boost event still
+        # belongs to the move user: defending Unaware also ignores that stage.
+        visible_active = [attacker, defender]
+        for key in ("active_pokemon", "opponent_active_pokemon"):
+            if isinstance(observation.get(key), (list, tuple)):
+                visible_active.extend(mon for mon in observation[key] if isinstance(mon, dict))
+        gas_active = any(present(mon) and _norm(mon.get("ability")) == "neutralizinggas"
+                         and "gastroacid" not in flags(mon, "effects") for mon in visible_active)
+        def ability_active(mon):
+            return ("gastroacid" not in flags(mon, "effects")
+                    and (not gas_active or _norm(mon.get("item")) == "abilityshield"))
+        attacker_unaware = _norm(attacker.get("ability")) == "unaware" and ability_active(attacker)
+        defender_unaware = ability == "unaware" and ability_active(defender)
+        bypass_unaware = (_norm(defender.get("item")) != "abilityshield" and (
+            (_norm(attacker.get("ability")) in {"moldbreaker", "teravolt", "turboblaze"}
+             and ability_active(attacker))
+            or name in {"sunsteelstrike", "moongeistbeam", "photongeyser"}))
+        if defender_unaware and not bypass_unaware:
+            offense_mon = {**offense_mon, "boosts":{**_dict(offense_mon.get("boosts")), attack_stat:0}}
+        if attacker_unaware:
+            defense_mon = {**defender, "boosts":{**_dict(defender.get("boosts")), defense_stat:0}}
+    offense = stat(offense_mon, attack_stat)
+    defense = stat(defense_mon, defense_stat)
     if _norm(defender.get("item")) == "assaultvest" and defense_stat == "spd":
         defense *= 1.5
     if _norm(defender.get("item")) == "eviolite":
