@@ -382,14 +382,20 @@ class WerewolfPolicyV10:
             safe = set(targets) - v.allies - {v.me}
             if not safe:
                 return None
-            # Lower-seat wolf leads; a forged message from anybody else cannot
-            # change the plan. One seat's memory is never read by another.
-            for ally in sorted(v.allies):
-                plan = self._wolf_plans.get(ally)
-                if plan and plan[0] == v.day and ally < (v.me if v.me is not None else 7) and plan[1] in safe:
-                    return plan[1]
+            # A living lower-seat wolf leads. Publicly updated targets and our
+            # already announced counterclaim supersede an initial private plan;
+            # otherwise an obsolete opening message splits the wolf pair.
+            leaders = sorted(n for n in v.allies & v.alive if n < (v.me if v.me is not None else 7))
+            for ally in leaders:
+                proposal = self._proposals.get(ally)
+                if proposal and proposal[0] == v.day and proposal[1] in safe:
+                    return proposal[1]
             if self._bluff_targets.get(v.day) in safe:
                 return self._bluff_targets[v.day]
+            for ally in leaders:
+                plan = self._wolf_plans.get(ally)
+                if plan and plan[0] == v.day and plan[1] in safe:
+                    return plan[1]
             if self._quiet_table(v):
                 return self._quiet_table_target(v, safe)
             support = {n: sum(1 for who, (day, target) in self._proposals.items()
@@ -424,9 +430,14 @@ class WerewolfPolicyV10:
             return abstain or (actions[0] if actions else None)
         if v.phase == "night_wolf":
             target = self._night_target(v, targets)
-            for ally in sorted(v.allies):
+            _, seer = self._beliefs(v)
+            for ally in sorted(v.allies & v.alive):
                 plan = self._wolf_plans.get(ally)
-                if plan and plan[0] in (v.day, v.day - 1) and ally < (v.me if v.me is not None else 7) and plan[2] in targets:
+                # Day N's discussion can coordinate night N+1 only. A dead
+                # teammate's plan, or one contradicted by stronger current
+                # seer evidence, must not override the surviving wolf's view.
+                if (plan and plan[0] == v.day - 1 and ally < (v.me if v.me is not None else 7)
+                        and plan[2] in targets and seer[plan[2]] >= seer[target] - 1e-9):
                     target = plan[2]
                     break
         elif v.phase == "night_seer":

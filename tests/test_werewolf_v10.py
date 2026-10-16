@@ -161,6 +161,77 @@ def test_only_known_ally_can_send_wolf_plan_and_sender_is_authenticated():
     assert p.choose_action(s).action_id == "4"
 
 
+def test_completed_match_living_leader_public_update_supersedes_opening_plan():
+    s = state("WOLF", me=3, checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player1 today. Night target Player1.", 1, [3]),
+        chat(4, "I am the seer. My checks: Player0 is WOLF. I propose voting Player0.", 2),
+        chat(0, "I am the seer. My investigation found Player4 is a wolf. I propose voting Player4.", 3)])
+    p = WerewolfPolicyV10()
+    assert p.choose_action(s).action_id == "4"
+
+
+def test_own_counterclaim_not_overridden_by_older_private_plan():
+    s = state("WOLF", me=3, checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player1 today. Night target Player1.", 1, [3]),
+        chat(4, "I am the seer. My checks: Player0 is WOLF. I propose voting Player0.", 2)])
+    p = WerewolfPolicyV10()
+    assert "I propose voting Player4" in p.choose_message(s).content
+    assert p.choose_action(s).action_id == "4"
+
+
+def test_dead_wolf_leader_day_plan_does_not_override_survivor():
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player3 today. Night target Player4.", 1, [6])])
+    p = WerewolfPolicyV10()
+    assert p.choose_action(s).action_id == "3"
+    s.raw["game_state"]["dead"] = [{"name": "Player0", "role": "wolf"}]
+    assert p.choose_action(s).action_id == "2"
+
+
+def test_previous_day_private_vote_plan_cannot_choose_todays_vote():
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player3 today. Night target Player4.", 1, [6])])
+    p = WerewolfPolicyV10()
+    assert p.choose_action(s).action_id == "3"
+    s.raw["game_state"]["day"] = 2
+    s.new_messages = []
+    assert p.choose_action(s).action_id == "2"
+
+
+def test_completed_match_dead_leader_cannot_override_public_seer_night_target():
+    s = state("WOLF", me=3, checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player1 today. Night target Player1.", 1, [3]),
+        chat(4, "I am the seer. My checks: Player0 is WOLF. I propose voting Player0.", 2)])
+    p = WerewolfPolicyV10()
+    p.choose_action(s)
+    s.raw["game_state"].update(day=2, phase="night_wolf", dead=[{"name": "Player0", "role": "wolf"}])
+    s.new_messages = []
+    assert p.choose_action(s).action_id == "4"
+
+
+def test_living_leader_old_night_plan_yields_to_stronger_seer_evidence():
+    s = state("WOLF", me=3, checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player1 today. Night target Player1.", 1, [3]),
+        chat(4, "I am the seer. My checks: Player2 is VILLAGER. I propose voting Player5.", 2)])
+    p = WerewolfPolicyV10()
+    p.choose_action(s)
+    s.raw["game_state"].update(day=2, phase="night_wolf")
+    s.new_messages = []
+    assert p.choose_action(s).action_id == "4"
+
+
+def test_expired_night_plan_is_not_reused_two_nights_later():
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=[
+        chat(0, "Wolf coordination: vote Player3 today. Night target Player4.", 1, [6])])
+    p = WerewolfPolicyV10()
+    p.choose_action(s)
+    s.raw["game_state"].update(day=2, phase="night_wolf")
+    s.new_messages = []
+    assert p.choose_action(s).action_id == "4"  # current coordination still works
+    s.raw["game_state"]["day"] = 3
+    assert p.choose_action(s).action_id == "1"
+
+
 def test_private_wolf_plan_rejects_friendly_fire_and_other_recipient():
     p = WerewolfPolicyV10()
     s = state("WOLF", checks="Your fellow wolves: Player0", messages=[

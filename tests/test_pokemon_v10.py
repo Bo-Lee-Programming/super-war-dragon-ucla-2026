@@ -268,3 +268,102 @@ def test_end_only_clears_matching_side_and_new_start_can_reactivate():
                          "|-start|p1a: Iron Valiant|quarkdriveatk"])
     effects=_public_stat_effects(state.raw["observation"])
     assert effects == {"p1a":{"label":"ironvaliant","ability":"quarkdrive","stat":"atk"}}
+
+
+def forced_replacements(bench=("pelipper",), both=True):
+    """A bad switch matchup must not make a mandatory replacement optional."""
+    options = [{"type":"switch", "species":s} for s in bench] + [{"type":"pass"}]
+    state = battle(options, [{"species":"ironvaliant", "moves":["thunderbolt"]}],
+                   active="rillaboom", partner="archaludon", turn=5,
+                   partner_moves=deepcopy(options) if both else [{"type":"pass"}])
+    for i, slot in enumerate(state.legal_actions[0].input["action"]["slots"]):
+        slot["force_switch"] = i == 0 or both
+        if slot["force_switch"]:
+            slot["active"].update(fainted=True, current_hp_fraction=0)
+    state.raw["observation"]["team"] = {
+        "p1: "+s:{"species":s, "moves":["hurricane"], "current_hp_fraction":1}
+        for s in bench}
+    return state
+
+
+def test_double_forced_replacement_with_one_reserve_cannot_pass_twice():
+    action = doubles(forced_replacements())
+    choices = [action["slot_0"], action["slot_1"]]
+    assert choices.count({"type":"pass"}) == 1
+    assert choices.count({"type":"switch", "species":"pelipper"}) == 1
+
+
+def test_double_forced_replacement_uses_two_distinct_reserves():
+    action = doubles(forced_replacements(("pelipper", "gyarados")))
+    choices = [action["slot_0"], action["slot_1"]]
+    assert all(c["type"] == "switch" for c in choices)
+    assert {c["species"] for c in choices} == {"pelipper", "gyarados"}
+
+
+def test_single_forced_replacement_keeps_other_slots_required_pass():
+    action = doubles(forced_replacements(both=False))
+    assert action["slot_0"] == {"type":"switch", "species":"pelipper"}
+    assert action["slot_1"] == {"type":"pass"}
+
+
+def test_forced_replacement_without_legal_reserves_does_not_invent_switches():
+    action = doubles(forced_replacements(()))
+    assert action["slot_0"] == action["slot_1"] == {"type":"pass"}
+
+
+def test_forced_replacement_preserves_each_slots_legal_choices():
+    state = forced_replacements(("pelipper", "gyarados"))
+    state.legal_actions[0].input["action"]["slots"][1]["options"] = [
+        {"type":"switch", "species":"pelipper"}, {"type":"pass"}]
+    action = doubles(state)
+    assert action["slot_0"] == {"type":"switch", "species":"gyarados"}
+    assert action["slot_1"] == {"type":"switch", "species":"pelipper"}
+
+
+def test_public_draft_magic_bounce_blocks_unrevealed_status_targets():
+    from examples.pokemon_policy_v10 import _status_ok
+    foe = {"species":"Hatterene", "ability":None, "item":"unknown_item",
+           "public_set":{"ability":"Magic Bounce", "item":"Safety Goggles"}}
+    for name in ("spore", "hypnosis", "taunt", "partingshot", "thunderwave"):
+        assert not _status_ok(name, foe, {}, {})
+    # An actually revealed replacement ability takes precedence over the draft.
+    assert _status_ok("hypnosis", {**foe, "ability":"Healer"}, {}, {})
+    assert _status_ok("hypnosis", {"species":"Hatterene", "ability":None}, {}, {})
+
+
+def test_completed_selfplay_shape_does_not_spore_public_magic_bounce():
+    policy = PokemonPolicyV10()
+    context = SimpleNamespace(session_id="completed-selfplay", agent_id="our-seat")
+    draft = SimpleNamespace(raw={"observation":{"available_cards":[
+        {"species":"Hatterene", "ability":"Magic Bounce", "item":"Safety Goggles"}]}}, legal_actions=[])
+    policy.prepare(draft, context)
+    state = battle([opt("spore", opponents=("Hatterene",)), opt("sludgebomb", opponents=("Hatterene",))],
+                   [{"species":"Hatterene", "ability":None, "item":"unknown_item", "current_hp_fraction":.44}],
+                   active="Amoonguss", turn=2)
+    prepared = policy.prepare(state, context)
+    assert doubles(prepared)["slot_0"]["move_id"] == "sludgebomb"
+
+
+def test_public_original_items_do_not_restore_consumed_immunity():
+    from examples.pokemon_policy_v10 import _status_ok
+    for current in (None, "", "unknown_item"):
+        foe = {"species":"Toxapex", "item":current, "public_set":{"item":"Safety Goggles"}}
+        assert _status_ok("spore", foe, {}, {})
+        balloon = {"species":"Heatran", "item":current, "public_set":{"item":"Air Balloon"}}
+        assert damage({"move_id":"earthquake"}, {"species":"Garchomp"}, balloon) > 0
+
+
+def test_lone_amoonguss_does_not_redirect_for_empty_or_fainted_partner():
+    # Completed external game turn 8: only Amoonguss remains, against the
+    # sleeping Archaludon; slot 0 is None and its only legal action is pass.
+    for missing in (None, {"species":"Lucario", "fainted":True, "current_hp_fraction":0}):
+        for redirect in ("ragepowder", "followme"):
+            state = battle([{"type":"pass"}],
+                           [{"species":"Archaludon", "status":"SLP", "current_hp_fraction":.6,
+                             "moves":["bodypress"], "boosts":{"def":3, "spa":-4}}, None],
+                           partner="Amoonguss", turn=8,
+                           partner_moves=[opt(redirect, targets=(0,)), opt("pollenpuff", targets=(1,), opponents=("Archaludon",))])
+            slots = state.legal_actions[0].input["action"]["slots"]
+            slots[0]["active"] = missing
+            slots[1]["active"].update(current_hp_fraction=93/220)
+            assert doubles(state)["slot_1"]["move_id"] == "pollenpuff"

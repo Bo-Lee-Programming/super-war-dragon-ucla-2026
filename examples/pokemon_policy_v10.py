@@ -398,7 +398,12 @@ def _priority_blocked(mon, foe, observation, m, foes):
 
 
 def _status_ok(name, foe, attacker, observation):
-    ability, item = _norm(foe.get("ability")), _norm(foe.get("item"))
+    # The platform hides an unrevealed ability as None even when the same
+    # match's public draft card already disclosed it. A current revealed
+    # ability overrides that original set. Do not revive consumed items from
+    # the draft: item=None is meaningful and unknown_item is still unknown.
+    ability = _norm(foe.get("ability") or _dict(foe.get("public_set")).get("ability"))
+    item = _norm(foe.get("item"))
     if ability in {"goodasgold", "magicbounce"}:
         return False
     if name in {"spore","sleeppowder","hypnosis","thunderwave","willowisp","toxic"} and foe.get("status"):
@@ -479,6 +484,14 @@ def doubles(state):
             return None
         candidates.append(choices)
 
+    # A pass can be legal for either forced slot when only one reserve remains,
+    # but passing both slots is not a legal joint choice. Require every available
+    # replacement before comparing matchup scores, using only listed switches.
+    forced_slots = [i for i in (0,1) if by_slot[i].get("force_switch")]
+    reserve_species = {_norm(choice[0]["species"]) for i in forced_slots
+                       for choice in candidates[i] if choice[0]["type"] == "switch"}
+    required_replacements = min(len(forced_slots), len(reserve_species))
+
     team = { _norm(m.get("species")):m for m in _dict(observation.get("team")).values() if isinstance(m,dict)}
     for mons in observation.get("available_switches",[]):
         if isinstance(mons,list):
@@ -487,6 +500,8 @@ def doubles(state):
     best = None
     for pair in product(*candidates):
         if pair[0][0]["type"] == pair[1][0]["type"] == "switch" and _norm(pair[0][0]["species"]) == _norm(pair[1][0]["species"]):
+            continue
+        if sum(pair[i][0]["type"] == "switch" for i in forced_slots) != required_replacements:
             continue
         score, damage_to, disabled = 0.,{t:0. for t in foes},{}
         fast_damage, contribution = {t:0. for t in foes}, [0.,0.]
@@ -581,9 +596,12 @@ def doubles(state):
                     pt = partner[0].get("target")
                     score += 45*max((damage(partner[1],active[1-i],foes[t],observation) for t in foes if pt in (0,t)),default=0)
             elif name in {"ragepowder","followme"}:
-                partner_risk = sum(incoming[1-i,t] for t in foes)
-                self_risk = sum(incoming[i,t] for t in foes)
-                score += 15*(partner_risk-self_risk) + 7
+                # A vacant/fainted board slot is not a vulnerable teammate.
+                # Its placeholder stats otherwise create fictitious savings.
+                if present(switched[1-i]):
+                    partner_risk = sum(incoming[1-i,t] for t in foes)
+                    self_risk = sum(incoming[i,t] for t in foes)
+                    score += 15*(partner_risk-self_risk) + 7
             elif m["category"] == "status" and target not in foes and name not in _PROTECT:
                 score += 2
         # Value preventing enemy actions; a fast KO is better than a slow trade.

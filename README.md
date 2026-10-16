@@ -1,4 +1,4 @@
-# Super War Dragon V10.1
+# Super War Dragon V10.2
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -31,9 +31,9 @@ No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The V10.1 candidate contains 32 Pokemon, 34 Werewolf, 23 Red Alert, and 9
+The V10.2 candidate contains 41 Pokemon, 41 Werewolf, 23 Red Alert, and 9
 audit/watchdog regression tests. Full-suite results are recorded with releases.
-The complete V10.1 suite passed 932 tests and 4 subtests.
+The complete V10.2 suite passed 948 tests and 4 subtests.
 The earlier V9 suite passed 834 tests plus 4 subtests. This is not a
 competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
@@ -126,5 +126,28 @@ Werewolf ignores negated, quoted and conditional vote proposals, restores
 its own current discussion message allowance after reconnect, and deduplicates
 server echoes. The watchdog retries temporary log-open and process-launch
 failures without changing the selected source or starting a duplicate process.
-These fixes passed 932 tests plus 4 subtests. Historical observation replay
-validates these specific decisions; V10.1 has no completed platform match yet.
+These fixes passed 932 tests plus 4 subtests. V10.1 subsequently completed
+self-play in all three games, an external Red Alert win (7:55, opponent
+Abu Bakar Siddik), and an external Pokemon loss (9 turns, opponent one
+Pokemon remaining). These small samples do not establish a win rate.
+
+## V10.2 corrections from completed tests
+
+Pokemon joint forced switches now use every available legal replacement.
+An unrevealed opponent ability can use the same match's public draft card;
+an explicitly revealed ability takes precedence. Consumed or unknown items
+are not restored from draft cards. Rage Powder and Follow Me receive no
+protection benefit when there is no living partner.
+
+Werewolf coordination expires stale or deceased allies' plans. Current-day
+public proposals and announced counterclaims take precedence over opening
+private plans. A previous discussion's night plan cannot override stronger
+current seer evidence. The completed-game replays validate the changed
+decisions, not counterfactual wins.
+
+The previous immutable V10.1 policy won 16 of 24 paired offline games against
+V9 using Pokemon Showdown 0.11.10, with 446 decisions and no engine errors.
+This used three fixed roster pairs, two seeds and swapped sides under
+gen9vgc2025regg, without the platform's draft. The custom observation adapter,
+weak baseline and limited scenarios mean this is not a platform win-rate
+estimate. V10.2's online evaluation is pending.
