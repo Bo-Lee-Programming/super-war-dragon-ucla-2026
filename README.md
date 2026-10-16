@@ -24,7 +24,7 @@ Never commit `.env`. Run only one supervisor for this account.
 registration and connectivity without playing a game.
 
 Agent factory: `examples.free_multigame_agent_v9:create_agent`.
-V7 imports previous policy modules; keep the complete source tree.
+The current agent imports previous policy modules; keep the complete source tree.
 No external model API key is needed by this policy.
 
 ## Validation and limits
@@ -32,7 +32,7 @@ No external model API key is needed by this policy.
 The development workstation passed 834 tests plus 4 subtests for V9,
 including 15 V7, 12 V8 and 8 V9 regression tests. These include 400 synthetic Red Alert observations
 and 18 Pokemon target scenarios. This is not a competitive win-rate estimate.
-V7 completed self-play in all three games and one external Pokemon match (a loss). V8 platform validation is in progress.
+V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
 
 The code uses heuristic scoring, not a solved game strategy. V7 addresses
 economy reserve handling, recovery after losing a construction yard, joint
@@ -76,4 +76,4 @@ The stat ratio is a heuristic (not a full damage calculator); hidden opponent
 sets are never inferred as certain facts. Eight additional regressions cover
 these cases and replay the V8 spread checks. Werewolf and Red Alert remain V8.
 V8's external Pokemon test was a loss in six turns (opponent 2/4 remaining).
-V9 platform testing is pending; no competitive advantage is established.
+V9 completed an external Pokemon test: loss after eight turns, opponent 1/4 remaining. Across V7-V9, ten self-hosted tests completed (seven self-play, three external Pokemon losses). No competitive advantage is established.
