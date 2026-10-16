@@ -63,6 +63,24 @@ def test_counterfeit_quoted_seer_claim_is_not_attributed_to_sender():
     assert not p._claims
 
 
+def test_negated_vote_is_not_a_positive_proposal():
+    for text in ("Do not vote Player3. Vote Player4.",
+                 "Don't vote Player3; I will vote for Player4.",
+                 "I will not vote Player3. Instead, vote Player4.",
+                 "Avoid voting for Player3. My vote is Player4."):
+        p = WerewolfPolicyV10()
+        p.choose_action(state(messages=[chat(1, text)]))
+        assert p._proposals[1] == (1, 4)
+
+
+def test_quoted_conditional_and_third_party_votes_do_not_count():
+    for text in ('Player2 says vote Player3.', '"Vote Player3" was their claim.',
+                 'Vote Player3 if the seer confirms it.', 'I will not vote Player3.'):
+        p = WerewolfPolicyV10()
+        p.choose_action(state(messages=[chat(1, text)]))
+        assert not p._proposals
+
+
 def test_public_sdk_seer_claim_can_coordinate_villager_vote():
     p = WerewolfPolicyV10()
     s = state(messages=[chat(1, "I am the seer. My investigation found Player4 is a wolf. I propose voting Player4.")])
@@ -192,6 +210,9 @@ def test_session_and_seat_identity_reset_private_memory():
     assert p._claims
     p.choose_action(state(session="new-session"))
     assert not p._claims
+    p.choose_action(state(me=5, messages=[chat(1, "I am the seer. Checks: Player4=WOLF.")]))
+    p.choose_action(state(me=6))
+    assert not p._claims
 
 
 def test_terminated_player_reads_new_claim_but_never_sends_another_chat():
@@ -206,9 +227,81 @@ def test_terminated_player_reads_new_claim_but_never_sends_another_chat():
     p = WerewolfPolicyV10()
     s.raw["terminated_messaging"] = [6]
     assert p.choose_message(s) is TERMINATE_MESSAGING
-    p.choose_action(state(me=5, messages=[chat(1, "I am the seer. Checks: Player4=WOLF.")]))
-    p.choose_action(state(me=6))
-    assert not p._claims
+
+
+def own_history(count, *, start=1, recipients=None, sent_at=""):
+    return [Message.from_dict({"seq": i, "sender": 6, "type": "chat",
+        "content": f"Previous own message {i}.", "recipients": recipients or [], "sent_at": sent_at})
+        for i in range(start, start + count)]
+
+
+def test_mid_window_restart_reserves_only_one_remaining_message():
+    p = WerewolfPolicyV10()
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=own_history(4))
+    first = p.choose_message(s)
+    assert first is not TERMINATE_MESSAGING and first.recipients == [0]
+    assert p.choose_message(s) is TERMINATE_MESSAGING
+    assert len(p._quota_observed[1]) + len(p._quota_pending[1]) == 5
+
+
+def test_restarted_full_window_terminates_even_if_only_private_own_chats():
+    p = WerewolfPolicyV10()
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=own_history(5, recipients=[0]))
+    assert p.choose_message(s) is TERMINATE_MESSAGING
+    assert not p._quota_pending[1]
+
+
+def test_raw_and_decoded_own_history_does_not_double_count_quota():
+    history = [{"seq": i, "sender": 6, "type": "chat", "recipients": [],
+                "content": f"Previous own message {i}."} for i in range(1, 5)]
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=[Message.from_dict(m) for m in history])
+    s.raw["new_messages"] = history
+    p = WerewolfPolicyV10()
+    assert p.choose_message(s) is not TERMINATE_MESSAGING
+    assert len(p._quota_observed[1]) == 4
+    assert p.choose_message(s) is TERMINATE_MESSAGING
+
+
+def test_server_echo_acknowledges_pending_send_without_double_count():
+    p = WerewolfPolicyV10()
+    s = state("WOLF", checks="Your fellow wolves: Player0", messages=own_history(3))
+    first = p.choose_message(s)
+    assert first is not TERMINATE_MESSAGING
+    s.new_messages.append(chat(6, first.content, 4, first.recipients))
+    second = p.choose_message(s)
+    assert second is not TERMINATE_MESSAGING
+    assert len(p._quota_observed[1]) == 4 and len(p._quota_pending[1]) == 1
+    assert p.choose_message(s) is TERMINATE_MESSAGING
+
+
+def test_other_players_messages_never_consume_own_quota():
+    others = [chat(0, f"Other private message {i}", i, [6]) for i in range(8)]
+    others += [chat(1, f"Unrelated private message {i}", i + 8, [2]) for i in range(8)]
+    s = state(messages=others)
+    p = WerewolfPolicyV10()
+    assert p.choose_message(s) is not TERMINATE_MESSAGING
+    assert not p._quota_observed[1] and len(p._quota_pending[1]) == 1
+
+
+def test_existing_worker_does_not_carry_sent_count_into_next_day():
+    s = state(messages=own_history(5))
+    p = WerewolfPolicyV10()
+    assert p.choose_message(s) is TERMINATE_MESSAGING
+    s.raw["game_state"]["day"] = 2
+    # Defensive against a client retaining the previous day's message list.
+    assert p.choose_message(s) is not TERMINATE_MESSAGING
+    assert not p._quota_observed[2]
+
+
+def test_restart_rejects_prior_window_messages_using_official_deadline():
+    s = state(day=2, messages=own_history(5, sent_at="2026-10-16T10:00:30Z"))
+    s.raw["messaging_deadline"] = "2026-10-16T10:07:00Z"
+    p = WerewolfPolicyV10()
+    assert p.choose_message(s) is not TERMINATE_MESSAGING
+    assert not p._quota_observed[2]
+    s = state(day=2, messages=own_history(5, sent_at="2026-10-16T10:05:30+00:00"))
+    s.raw["messaging_deadline"] = "2026-10-16T10:07:00+00:00"
+    assert WerewolfPolicyV10().choose_message(s) is TERMINATE_MESSAGING
 
 
 def test_day_proposals_expire_but_check_claims_survive():

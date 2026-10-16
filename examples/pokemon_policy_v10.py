@@ -105,6 +105,9 @@ def stat(mon, name):
     up, down = nature_effects.get(nature,(None,None))
     value *= 1.1 if name == up else .9 if name == down else 1
     value *= stage_factor(_dict(mon.get("boosts")).get(name))
+    # This marker is derived only from observed public protocol -start/-end
+    # events in prepare(), not inferred from a Booster Energy item or species.
+    value *= number(_dict(mon.get("_public_stat_boosts")).get(name), 1)
     if name == "spe" and _norm(mon.get("status")) in {"par", "paralysis"}:
         value *= .5
     return value
@@ -318,6 +321,72 @@ def _own_history(observation, slot):
             if len(parts) > 2 and parts[2].isdigit() and int(parts[2]) < number(observation.get("turn")):
                 acted = True
     return (entered and not acted) or observation.get("turn") == 1, last
+
+
+def _public_stat_effects(observation):
+    """Current publicly announced paradox boosts, keyed by exact board slot.
+
+    Pokemon Showdown announces the actual boosted stat (e.g. quarkdrivespe).
+    A replacement Pokemon never inherits the departing occupant's effect.
+    Missing or truncated evidence remains unknown rather than guessed.
+    """
+    effects = {}
+    for line in observation.get("protocol_log", []):
+        if not isinstance(line, str):
+            continue
+        parts = line.split("|")
+        if len(parts) < 3 or ":" not in parts[2]:
+            continue
+        board, label = parts[2].split(":", 1)
+        if board not in {"p1a", "p1b", "p2a", "p2b"}:
+            continue
+        event = parts[1]
+        if event in {"switch", "drag", "replace", "faint"}:
+            effects.pop(board, None)
+        elif event == "-start" and len(parts) >= 4:
+            effect = _norm(parts[3])
+            for ability in ("quarkdrive", "protosynthesis"):
+                stat_name = effect[len(ability):] if effect.startswith(ability) else ""
+                if stat_name in {"atk", "def", "spa", "spd", "spe"}:
+                    effects[board] = {"label":_norm(label), "ability":ability, "stat":stat_name}
+                    break
+        elif event == "-end" and len(parts) >= 4 and board in effects:
+            ended = _norm(parts[3]).removeprefix("ability")
+            if ended.startswith(effects[board]["ability"]):
+                effects.pop(board, None)
+    return effects
+
+
+def _apply_public_stat_effects(observation, legal_actions):
+    effects = _public_stat_effects(observation)
+    own_side = next((str(k).split(":", 1)[0] for k in _dict(observation.get("team"))
+                     if str(k).startswith(("p1:", "p2:"))), None)
+    if own_side is None:
+        return
+    def mark(mon, board):
+        if not isinstance(mon, dict):
+            return
+        mon.pop("_public_stat_boosts", None)
+        effect = effects.get(board)
+        if effect and effect["label"] in {_norm(mon.get("name")), _norm(mon.get("species"))}:
+            mon["_public_stat_boosts"] = {effect["stat"]:1.5 if effect["stat"] == "spe" else 1.3}
+    for own, active_key, team_key in ((True, "active_pokemon", "team"), (False, "opponent_active_pokemon", "opponent_team")):
+        side = own_side if own else "p2" if own_side == "p1" else "p1"
+        active = observation.get(active_key, [])
+        if not isinstance(active, list):
+            continue
+        for i, mon in enumerate(active[:2]):
+            board = side + ("a" if i == 0 else "b")
+            mark(mon, board)
+            if isinstance(mon, dict):
+                for member in _dict(observation.get(team_key)).values():
+                    if isinstance(member, dict) and member.get("active") and _norm(member.get("species")) == _norm(mon.get("species")):
+                        mark(member, board)
+    for action in legal_actions:
+        template = _dict(_dict(action.input).get("action"))
+        for slot in template.get("slots", []):
+            if isinstance(slot, dict) and slot.get("slot") in (0, 1):
+                mark(slot.get("active"), own_side + ("a" if slot["slot"] == 0 else "b"))
 
 
 def _priority_blocked(mon, foe, observation, m, foes):
@@ -551,19 +620,19 @@ class PokemonPolicyV10:
     def prepare(self, state, context):
         session = getattr(context,"session_id",None) or _dict(state.raw).get("session_id")
         agent = getattr(context,"agent_id",None)
-        if not session or not agent:
-            return state
-        key = (session,agent)
-        if key not in self._cards:
-            if len(self._cards) >= 4:
-                self._cards.pop(next(iter(self._cards)))
-            self._cards[key] = {}
-        catalog = self._cards[key]
+        catalog = {}
+        if session and agent:
+            key = (session,agent)
+            if key not in self._cards:
+                if len(self._cards) >= 4:
+                    self._cards.pop(next(iter(self._cards)))
+                self._cards[key] = {}
+            catalog = self._cards[key]
         original = _observation(_dict(state.raw))
         for card in original.get("available_cards",[]):
             if isinstance(card,dict) and card.get("species"):
                 catalog[_norm(card["species"])] = deepcopy(card)
-        if not catalog:
+        if not catalog and not original.get("protocol_log"):
             return state
         observation = deepcopy(original)
         def annotate(value):
@@ -585,6 +654,7 @@ class PokemonPolicyV10:
         changed.legal_actions = deepcopy(state.legal_actions)
         for action in changed.legal_actions:
             annotate(action.input)
+        _apply_public_stat_effects(observation, changed.legal_actions)
         return changed
 
     def choose_action(self,state,context):

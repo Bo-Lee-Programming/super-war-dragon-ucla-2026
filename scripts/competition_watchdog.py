@@ -70,6 +70,26 @@ def terminate_runtime(process):
     process.wait(timeout=20)
 
 
+def start_runtime(command, cwd, directory, popen):
+    """Open child logs and launch; the child owns its inherited log handles."""
+    streams = []
+    try:
+        for name in ("runtime.stdout.log", "runtime.stderr.log"):
+            streams.append((directory / name).open("ab", buffering=0))
+        out, err = streams
+        out.write(("\nRuntime start " + datetime.now(timezone.utc).isoformat() + "\n").encode())
+        return popen(command, cwd=str(cwd), stdout=out, stderr=err,
+                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    finally:
+        # Parent copies are unnecessary after Popen duplicates/inherits them.
+        # A close failure must never conceal a successfully launched process.
+        for stream in streams:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
 def supervise(command, cwd, directory, *, max_starts=None, interval=5,
               backoff=10, popen=subprocess.Popen, sleep=time.sleep):
     """A STOP marker requests shutdown; create it only when no match is active."""
@@ -77,11 +97,15 @@ def supervise(command, cwd, directory, *, max_starts=None, interval=5,
     starts = 0
     while not stop.exists() and (max_starts is None or starts < max_starts):
         starts += 1
-        with (directory / "runtime.stdout.log").open("ab", buffering=0) as out, \
-             (directory / "runtime.stderr.log").open("ab", buffering=0) as err:
-            out.write(("\nRuntime start " + datetime.now(timezone.utc).isoformat() + "\n").encode())
-            process = popen(command, cwd=str(cwd), stdout=out, stderr=err,
-                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        try:
+            process = start_runtime(command, cwd, directory, popen)
+        except OSError as exc:
+            # Retry temporary file-sharing, disk and executable-access errors.
+            # Catch only launch failures: a running process must not be replaced
+            # merely because a monitoring operation failed.
+            write_status(directory, state="launch_failed", error_type=type(exc).__name__,
+                         error_number=exc.errno, starts=starts)
+        else:
             while process.poll() is None:
                 write_status(directory, state="running", runtime_pid=process.pid,
                              starts=starts, module=command[5], cwd=str(cwd))

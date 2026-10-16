@@ -7,6 +7,7 @@ private header and published deaths constrain the enumerated role worlds.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from itertools import combinations
 import math
@@ -36,6 +37,39 @@ def _seat(value, lookup=None):
 
 def _get(value, key, default=None):
     return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
+
+
+def _proposal(content):
+    """Read affirmative first-person proposals, not a vote word in a warning.
+
+    Separate sentences let "Do not vote Player3. Vote Player4." retain the
+    positive recommendation. Quoted/third-party and conditional statements
+    are deliberately not interpreted as the sender committing a vote.
+    """
+    result = None
+    for clause in re.split(r"[.!?;\n]+", content):
+        match = re.match(r"^\s*(?:(?:please|instead|therefore|so|actually)[,:]?\s+)*"
+                         r"(?:I propose voting(?: for)?|I (?:will )?vote(?: for)?|"
+                         r"(?:My )?vote(?: is| for)?|Voting for)\s*:?\s+Player([0-6])\b", clause, re.I)
+        if match and not re.search(r"\b(?:if|unless|maybe|perhaps)\b", clause, re.I):
+            result = int(match[1])
+    return result
+
+
+def _message_key(message):
+    return (_get(message, "seq", _get(message, "index", None)),
+            _get(message, "sender"), tuple(_get(message, "recipients", []) or []),
+            _get(message, "content", ""))
+
+
+def _timestamp(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -148,6 +182,52 @@ class WerewolfPolicyV10:
         self._last_target: dict[int, int] = {}
         self._bluff_targets: dict[int, int] = {}
         self._closed: set[int] = set()
+        self._quota_observed: dict[int, set[tuple]] = {}
+        self._quota_pending: dict[int, list[tuple]] = {}
+        self._quota_message_days: dict[tuple, int] = {}
+
+    def _restore_quota(self, state, v):
+        """Count only our own chats in this discussion, including after restart.
+
+        The official SDK's get_state new_messages covers the current phase,
+        not a full transcript (altruagent/mcp_game.py). Where timestamps and
+        the Werewolf 120-second deadline are present, also reject stale phases.
+        Never inspect files or another seat's private transcript to recover it.
+        """
+        observed = self._quota_observed.setdefault(v.day, set())
+        pending = self._quota_pending.setdefault(v.day, [])
+        deadline = _timestamp(v.raw.get("messaging_deadline"))
+        messages = list(getattr(state, "new_messages", []) or [])
+        messages.extend(v.raw.get("new_messages", []) or [])
+        for message in messages:
+            if _get(message, "type", "chat") != "chat" or _seat(_get(message, "sender"), v.lookup) != v.me:
+                continue
+            content = _get(message, "content", "")
+            recipients = _get(message, "recipients", []) or []
+            if not isinstance(content, str) or not isinstance(recipients, (list, tuple)):
+                continue
+            key = _message_key(message)
+            previous_day = self._quota_message_days.get(key)
+            if previous_day is not None and previous_day != v.day:
+                continue
+            sent_at = _timestamp(_get(message, "sent_at"))
+            if deadline is not None and sent_at is not None and not deadline - timedelta(seconds=120) <= sent_at <= deadline:
+                continue
+            self._quota_message_days[key] = v.day
+            if key in observed:
+                continue
+            observed.add(key)
+            fingerprint = (content, tuple(recipients))
+            # A server echo acknowledges one locally proposed send. Counting
+            # both would prematurely consume two slots for the same message.
+            if fingerprint in pending:
+                pending.remove(fingerprint)
+        return len(observed) + len(pending)
+
+    def _message(self, v, content, recipients=None):
+        recipients = list(recipients or [])
+        self._quota_pending.setdefault(v.day, []).append((content, tuple(recipients)))
+        return SendMessage(content, recipients=recipients)
 
     def _read(self, state, context=None):
         v = view(state, context)
@@ -192,9 +272,8 @@ class WerewolfPolicyV10:
                         if n in claim.checks and claim.checks[n] != found:
                             claim.contradictions += 1
                         claim.checks[n] = found
-            proposal = re.search(r"\b(?:I propose voting|I (?:will )?vote(?: for)?|Vote(?: for)?|voting for)\s+Player([0-6])\b", content, re.I)
-            if proposal:
-                target = int(proposal[1])
+            target = _proposal(content)
+            if target is not None:
                 if sender in v.alive and target in v.alive and target != sender:
                     self._proposals[sender] = (v.day, target)
         return v
@@ -365,6 +444,9 @@ class WerewolfPolicyV10:
         terminated = v.raw.get("terminated_messaging", getattr(state, "terminated_messaging", [])) or []
         if v.raw.get("eliminated") or v.me not in v.alive or v.day in self._closed or v.me in terminated:
             return TERMINATE_MESSAGING
+        if self._restore_quota(state, v) >= 5:
+            self._closed.add(v.day)
+            return TERMINATE_MESSAGING
         sent = self._sent.setdefault(v.day, set())
         if len(sent) >= 4:
             self._closed.add(v.day)
@@ -394,7 +476,7 @@ class WerewolfPolicyV10:
             ally = min(v.allies & v.alive)
             night = self._night_target(v, targets)
             sent.add("private")
-            return SendMessage(f"Wolf coordination: vote Player{target} today. Night target Player{night}.", recipients=[ally])
+            return self._message(v, f"Wolf coordination: vote Player{target} today. Night target Player{night}.", recipients=[ally])
         if message is None and ("proposal" not in sent or self._last_target.get(v.day) != target and "revision" not in sent):
             label = "proposal" if "proposal" not in sent else "revision"
             sent.add(label)
@@ -405,5 +487,5 @@ class WerewolfPolicyV10:
         self._last_target[v.day] = target
         # SDK max is 50 whitespace-delimited words; keep every message below it.
         assert len(message.split()) <= 50
-        return SendMessage(message)
+        return self._message(v, message)
 

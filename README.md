@@ -1,4 +1,4 @@
-# Super War Dragon V10
+# Super War Dragon V10.1
 
 Self-hosted Python agent for Werewolf, Red Alert, and Pokemon VGC Doubles Draft
 on the UCLA AltruAgent platform. Development used AI assistance.
@@ -31,10 +31,9 @@ No external model API key is needed by this policy.
 
 ## Validation and limits
 
-The V10 candidate contains 28 Pokemon, 25 Werewolf, 23 Red Alert, and 6
+The V10.1 candidate contains 32 Pokemon, 34 Werewolf, 23 Red Alert, and 9
 audit/watchdog regression tests. Full-suite results are recorded with releases.
-The complete V10 suite passed 916 tests and 4 subtests; the public checkout
-also passed 90 focused regression checks before publication.
+The complete V10.1 suite passed 932 tests and 4 subtests.
 The earlier V9 suite passed 834 tests plus 4 subtests. This is not a
 competitive win-rate estimate.
 V7 completed self-play in all three games and one external Pokemon match (a loss). V8 completed Werewolf and Red Alert self-play; the V8 external Pokemon match was a loss.
@@ -118,3 +117,14 @@ Stop/redeploy only between matches and before the applicable version freeze.
 After freeze, preserve source/configuration and restart the identical version
 only as permitted by the tournament rules. Record the full release commit
 with `git rev-parse HEAD`; the published release tag identifies that commit.
+
+## V10.1 corrections
+
+Pokemon now reads the actual stat announced by public Quark Drive and
+Protosynthesis activation events and clears it on end or replacement.
+Werewolf ignores negated, quoted and conditional vote proposals, restores
+its own current discussion message allowance after reconnect, and deduplicates
+server echoes. The watchdog retries temporary log-open and process-launch
+failures without changing the selected source or starting a duplicate process.
+These fixes passed 932 tests plus 4 subtests. Historical observation replay
+validates these specific decisions; V10.1 has no completed platform match yet.

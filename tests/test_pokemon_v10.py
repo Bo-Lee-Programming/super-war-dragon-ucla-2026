@@ -209,3 +209,62 @@ def test_hypnosis_remains_valid_against_grass_with_goggles():
     assert _status_ok("hypnosis",{"species":"Rillaboom","item":"Safety Goggles"},{},{})
     assert not _status_ok("hypnosis",{"species":"Toxapex","status":"par"},{},{})
     assert not _status_ok("hypnosis",{"species":"Toxapex","ability":"Insomnia"},{},{})
+
+
+def paradox_state(extra=()):
+    """Sanitized shape of the completed V8 own-seat first-turn observation."""
+    s=battle([opt("moonblast",opponents=("Iron Valiant",))],
+             [{"species":"Iron Valiant","name":"Iron Valiant","ability":"quarkdrive","item":None}],active="Flutter Mane")
+    own=s.legal_actions[0].input["action"]["slots"][0]["active"]
+    own.update(name="Flutter Mane",ability="protosynthesis",item="boosterenergy",active=True)
+    s.raw["observation"].update(team={"p2: Flutter Mane":deepcopy(own)},active_pokemon=[deepcopy(own)],
+        protocol_log=["|switch|p1a: Iron Valiant|Iron Valiant, L50|100/100",
+                      "|-enditem|p1a: Iron Valiant|Booster Energy",
+                      "|-activate|p1a: Iron Valiant|ability: Quark Drive|[fromitem]",
+                      "|-start|p1a: Iron Valiant|quarkdrivespe",*extra])
+    return s
+
+
+def test_visible_quarkdrive_speed_applies_without_draft_cache():
+    from examples.pokemon_policy_v10 import speed
+    state=paradox_state()
+    policy=PokemonPolicyV10()
+    prepared=policy.prepare(state,SimpleNamespace(session_id="no-draft",agent_id="me"))
+    raw=state.raw["observation"]; obs=prepared.raw["observation"]
+    assert speed(obs["opponent_active_pokemon"][0],obs,False) == speed(raw["opponent_active_pokemon"][0],raw,False)*1.5
+    assert "_public_stat_boosts" not in raw["opponent_active_pokemon"][0]
+    assert "_public_stat_boosts" not in obs["active_pokemon"][0]  # item alone is not activation evidence
+
+
+def test_protosynthesis_attack_boost_reaches_legal_active_descriptor():
+    from examples.pokemon_policy_v10 import stat
+    state=paradox_state(["|-start|p2a: Flutter Mane|protosynthesisspa"])
+    prepared=PokemonPolicyV10().prepare(state,SimpleNamespace())
+    raw=state.legal_actions[0].input["action"]["slots"][0]["active"]
+    active=prepared.legal_actions[0].input["action"]["slots"][0]["active"]
+    assert stat(active,"spa") == stat(raw,"spa")*1.3
+    assert stat(active,"spe") == stat(raw,"spe")
+
+
+def test_visible_paradox_effect_clears_on_end_or_slot_replacement():
+    from examples.pokemon_policy_v10 import _public_stat_effects
+    endings=["|-end|p1a: Iron Valiant|Quark Drive|[silent]",
+             "|switch|p1a: Iron Valiant|Iron Valiant, L50|100/100",
+             "|drag|p1a: Rillaboom|Rillaboom, L50|100/100",
+             "|replace|p1a: Zoroark|Zoroark, L50|100/100",
+             "|faint|p1a: Iron Valiant"]
+    for ending in endings:
+        state=paradox_state([ending])
+        assert "p1a" not in _public_stat_effects(state.raw["observation"])
+        prepared=PokemonPolicyV10().prepare(state,SimpleNamespace())
+        assert "_public_stat_boosts" not in prepared.raw["observation"]["opponent_active_pokemon"][0]
+
+
+def test_end_only_clears_matching_side_and_new_start_can_reactivate():
+    from examples.pokemon_policy_v10 import _public_stat_effects
+    state=paradox_state(["|-start|p2a: Flutter Mane|protosynthesisspa",
+                         "|-end|p2a: Flutter Mane|Protosynthesis",
+                         "|-end|p1a: Iron Valiant|Quark Drive",
+                         "|-start|p1a: Iron Valiant|quarkdriveatk"])
+    effects=_public_stat_effects(state.raw["observation"])
+    assert effects == {"p1a":{"label":"ironvaliant","ability":"quarkdrive","stat":"atk"}}
